@@ -1,6 +1,18 @@
 # sentinel-ssc
 
+## Working design choices
+- StartDate: 2014-01-01
+- EndDate: 2022-06-17
+- Channel width threshold: 30m
+- Station Distances: 2, 5, 8, 10, 15, 20 km (will use 5 km initially)
 
-Code to automatically query the USGS database for NLDI watershed parameters and station data - namely suspended sediment concentration (SSC) and and discharge (Q). Please refer to [ssc_retrieval.md](https://github.com/ivalencius/USGS_dataquery/blob/main/ssc_retrieval.md) for an overview of what code produces what plots. [1990-01-01_1995-01-01](https://github.com/ivalencius/USGS_dataquery/tree/main/1990-01-01_1995-01-01) provides the actual output of a query starting at the mouth of the Apalachicola river and extending up the Chattahoochee river to Bufords Dam. The data retrieved from the query Ranges from Jan 1, 1990 to Jan 2, 1995.
+## Planned Alogrithms - Clustering
+- KMeans
+- GaussianMixtureModel
 
-This code is currently set up to query SSC (parameter code 80154) and Q (parameter code 00060) from the [National Water Quality Monitoring Council (WQP)](https://www.waterqualitydata.us/) database and [USGS Water Service (NWIS)](https://waterservices.usgs.gov/) database respectively. These codes can easily be changed to query other parameters and will require minimal code editing (mostly changing variable names). NWIS provides daily value parameters such as discharge or stage while WQP provides water quality parameters . Be warned that the WQP portal may return differently formatted data when querying biological parameters as opposed to physical/chemical parameters (see: [WQP allowable values](https://www.waterqualitydata.us/portal_userguide/#water-quality-exchange-allowable-value-lists-and-definitions). Also note that not all dams are contained in the [National Inventory of Dams (NID)](https://nid.usace.army.mil/#/) database which this code queries from.
+## Planned Algorithms - Regression
+- Linear
+- Lasso
+- Ridge
+- Gaussian Process Regression
+- Random Forest
