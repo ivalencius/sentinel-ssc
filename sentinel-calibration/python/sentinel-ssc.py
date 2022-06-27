@@ -10,13 +10,17 @@ import argparse
 import pandas as pd
 import numpy as np
 import os
+
 import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
 
 from sklearn import cluster as cl
 from sklearn import preprocessing
 from sklearn.model_selection import train_test_split
+from yellowbrick.cluster import KElbowVisualizer
 
 from pickle import dump, load
+import json
 
 from argparse import Namespace
 
@@ -31,6 +35,7 @@ from argparse import Namespace
 # - Cluster args hardcoded in
 # - https://scikit-learn.org/stable/modules/clustering.html#
 # - Make code pretty with docs and tqdm
+# - Determine max value of sensor 
 
 def get_regressors(name):
     if name == 'raw bands':
@@ -62,12 +67,45 @@ def standardize(csv_path, reg_vars, mode):
     if mode == 'infer':
         scaler = load(open('algs\\scaler.pkl', 'rb'))
         data_std = scaler.transform(data)
-    return data_std, ssc
-    
+    return data_std, ssc, scaler
 
-def get_cluster(cluster_type, num_clust):
-    if cluster_type == 'kMeans':
-        clust = cl.KMeans(n_clusters=num_clust, n_init=20, verbose=0, random_state=0)
+def false_color_clust(centers, reg_vars, cluster_type):
+    # Need to scale inputs into 0-255 range so need to know maximum sensor value
+    max_val = 1000 # FIX, dependent on sensor
+    # Get indexes of RGB in reg vars
+    r = reg_vars.index('B3') 
+    g = reg_vars.index('B2') 
+    b = reg_vars.index('B1')
+    # Get number of clusters
+    num_clust = np.shape(centers)[0]
+    # Make plots
+    Cols = 3
+    # Compute Rows required
+    Rows = num_clust // Cols 
+    Rows += num_clust % Cols
+    # Create a Position index
+    Position = range(1,num_clust + 1)
+    plt.clf()
+    fig = plt.figure(1)
+    for i in range(num_clust):
+    #for i in range(1):
+        ax = fig.add_subplot(Rows,Cols,Position[i])
+        rgb = (int(255 / max_val * centers[i, r]), int(255 / max_val * centers[i, g]), int(255 / max_val * centers[i, b]))
+        ax.imshow([[rgb]], vmin=0, vmax=255)
+        ax.grid(False)
+        ax.axis('off')
+        ax.title.set_text('Clust '+str(i))
+        
+    fig.suptitle('False Color RGB of Cluster Centers', y=0.80)
+    plt.savefig('figures\\'+cluster_type+'_cluster_viz.pdf')
+    
+def get_cluster(cluster_type, num_clust = None):
+    if num_clust == None:
+        if cluster_type == 'kMeans':
+            clust = cl.KMeans(n_init=20, verbose=0, random_state=0)
+    elif num_clust != None:
+        if cluster_type == 'kMeans':
+            clust = cl.KMeans(n_clusters=num_clust, n_init=1, verbose=0, random_state=0)
     return clust
 
 def load_cluster(cluster_type):
@@ -75,32 +113,48 @@ def load_cluster(cluster_type):
         clust = load(open('algs\\kmeans_model.pkl', 'wb'))
     return clust
 
-def cluster(data, cluster_type, csv_path, mode):
+def cluster(data, cluster_type, csv_path, mode, scaler):
+    cluster_type = 'kMeans'
+    csv_path = "D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\tmp_vars\\ex_landsat.csv"
+
     if mode == 'train':
-        ks = [2, 3, 4, 5, 6, 7, 8, 9, 10]
-        sum_sqr_dists = []
-        centers = dict.fromkeys(ks)
-        for k in ks:
-            cluster = get_cluster(cluster_type, num_clust=k)
-            cluster.fit(data)
-            labels = cluster.predict(data)
-            # Once cluster is trained: save it
-            dump(cluster, open('algs\\kmeans_model'+str(k)+'_'+'.pkl', 'wb'))
-            # Save cluster information
-            centers[k] = cluster.cluster_centers_        
-            sum_sqr_dists.append(cluster.inertia_)
-            # Save data (append to non-standardized data)
-            df = pd.read_csv(csv_path)
-            df['cluster'] = labels
-            cluster_file = 'clusters\\clustered_' +cluster_type+'_'+str(k)+'.csv' 
-            df.to_csv(cluster_file, index=False)
-        # Create plot to determine k-value
-        plt.title('Elbow Graph of '+cluster_type)
-        plt.plot(ks, sum_sqr_dists)
-        plt.plot(ks, sum_sqr_dists, 'rx')
-        plt.xlabel('k value')
-        plt.ylabel('Sum of Squared Error')
-        plt.show() 
+        cluster = get_cluster(cluster_type)
+        visualizer = KElbowVisualizer(cluster, k=(1,10))
+        
+        # Fit data and create elbow graph
+        visualizer.fit(data)
+        # Render elbow graph
+        visualizer.show(outpath="figures\\"+cluster_type+'_elbow.pdf')
+        # Select optimal k value
+        k_optim = int(visualizer.elbow_value_)
+        # Apply and train cluster on optimal k value
+        cluster = get_cluster(cluster_type, num_clust = k_optim)
+        cluster.fit(data)
+        labels = cluster.predict(data)
+        # Once cluster is trained: save it
+        dump(cluster, open('algs\\kmeans_'+str(k_optim)+'.pkl', 'wb'))
+        # Save cluster information
+        clust_info = {
+            'reg_vars' : reg_vars,
+            'sum_sqr_dists' : cluster.inertia_,
+            'centers' : cluster.cluster_centers_.tolist(),
+            'centers_inv' : scaler.inverse_transform(cluster.cluster_centers_).tolist()
+            }
+        clust_info = {**cluster.get_params(), **clust_info}
+        # Output clustering info to json file
+        with open('clusters\\'+cluster_type+'_info.json', 'w') as file:
+            file.write(json.dumps(clust_info))
+        # Output pretty print data to txt for readability (not loading data)
+        with open('clusters\\pprint_'+cluster_type+'_info.txt', 'w') as file:
+                file.write(json.dumps(clust_info, indent=4, sort_keys=True))
+        # Save data (append to non-standardized data)
+        df = pd.read_csv(csv_path)
+        df['cluster'] = labels
+        cluster_file = 'clusters\\clustered_' +cluster_type+'_'+str(k_optim)+'.csv' 
+        df.to_csv(cluster_file, index=False)
+        # Generate false color plots of clusters
+        false_color_clust(scaler.inverse_transform(cluster.cluster_centers_).astype(int), reg_vars, cluster_type)
+        
     elif mode == 'infer':
         cluster = load_cluster(cluster_type)
         
@@ -136,10 +190,10 @@ if __name__ == "__main__":
     # Extract regression variables
     reg_vars = get_regressors(args.reg_vars)
     # Extract and standardize data to numpy array
-    data, ssc_vals = standardize(args.csv, reg_vars, args.mode)
+    data, ssc_vals, scaler = standardize(args.csv, reg_vars, args.mode)
         
     if args.task == "cluster":
-        cluster(data=data, cluster_type=args.cluster_type, csv_path=args.csv, mode=args.mode)
+        cluster(data=data, cluster_type=args.cluster_type, csv_path=args.csv, mode=args.mode, scaler=scaler)
     elif args.task == "regress":
         ... # neeed to use ssc_vals in regression and
     else:
