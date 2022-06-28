@@ -14,13 +14,19 @@ import os
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 
-from sklearn import cluster as cl
+# Model Pre-processing
 from sklearn import preprocessing
 from sklearn.model_selection import train_test_split
 from yellowbrick.cluster import KElbowVisualizer
 
+# Import Models
+from sklearn import cluster as cl
+from sklearn.linear_model import LinearRegression, Lasso, Ridge, ElasticNet
+
+
 from pickle import dump, load
 import json
+import glob
 
 from argparse import Namespace
 
@@ -36,6 +42,9 @@ from argparse import Namespace
 # - https://scikit-learn.org/stable/modules/clustering.html#
 # - Make code pretty with docs and tqdm
 # - Determine max value of sensor 
+# - Implement other clustering
+# - Clustering and regression save to different folders
+# - Set up throwing errors --> ASSERTIONS
 
 def get_regressors(name):
     if name == 'raw bands':
@@ -51,14 +60,28 @@ def get_regressors(name):
         ...
 
 def standardize(csv_path, reg_vars, mode):
-    csv_path = 'D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\tmp_vars\\ex_landsat.csv'
     try:
         df = pd.read_csv(csv_path)
     except Exception:
-        raise ValueError("Unknown CSV")
+        raise ValueError("!!! Unknown CSV !!!")
     # Extract data you wish to regress
     data = df[reg_vars].to_numpy()
-    ssc = df['SSC_mgL'].to_numpy()
+    # Check to see if data has SSC data
+    try:
+        ssc = df['SSC_mgL'].to_numpy()
+    except:
+        ssc = None
+    # Check to see if data is clustered
+    try:
+        num_clust = max(df['cluster'])+1
+    except:
+        num_clust = None
+    # Remove infinite ssc values (set to 0)
+    ssc[np.isnan(ssc)] = 0
+    data[np.isnan(ssc)] = 0
+    # Remove nan ssc values (set to 0)
+    ssc[~np.isfinite(ssc)] = 0
+    data[~np.isfinite(ssc)] = 0
     if mode == 'train':
         # Standardize data
         scaler = preprocessing.RobustScaler() # JUSTIFY ROBUST SCALER
@@ -67,7 +90,7 @@ def standardize(csv_path, reg_vars, mode):
     if mode == 'infer':
         scaler = load(open('algs\\scaler.pkl', 'rb'))
         data_std = scaler.transform(data)
-    return data_std, ssc, scaler
+    return data_std, ssc, scaler, num_clust
 
 def false_color_clust(centers, reg_vars, cluster_type):
     # Need to scale inputs into 0-255 range so need to know maximum sensor value
@@ -102,21 +125,19 @@ def false_color_clust(centers, reg_vars, cluster_type):
 def get_cluster(cluster_type, num_clust = None):
     if num_clust == None:
         if cluster_type == 'kMeans':
-            clust = cl.KMeans(n_init=20, verbose=0, random_state=0)
+            return cl.KMeans(n_init=20, verbose=0, random_state=0)
     elif num_clust != None:
         if cluster_type == 'kMeans':
-            clust = cl.KMeans(n_clusters=num_clust, n_init=1, verbose=0, random_state=0)
-    return clust
+            return cl.KMeans(n_clusters=num_clust, n_init=1, verbose=0, random_state=0)
 
 def load_cluster(cluster_type):
-    if cluster_type == 'kMeans':
-        clust = load(open('algs\\kmeans_model.pkl', 'wb'))
-    return clust
+    file = glob.glob('algs\\'+cluster_type+'*.pkl')[0]
+    try:
+        return load(open(file, 'rb'))
+    except:
+        print('!!! No Cluster Algorithm Found !!!')
 
 def cluster(data, cluster_type, csv_path, mode, scaler):
-    cluster_type = 'kMeans'
-    csv_path = "D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\tmp_vars\\ex_landsat.csv"
-
     if mode == 'train':
         cluster = get_cluster(cluster_type)
         visualizer = KElbowVisualizer(cluster, k=(1,10))
@@ -130,11 +151,11 @@ def cluster(data, cluster_type, csv_path, mode, scaler):
         # Apply and train cluster on optimal k value
         cluster = get_cluster(cluster_type, num_clust = k_optim)
         cluster.fit(data)
-        labels = cluster.predict(data)
         # Once cluster is trained: save it
         dump(cluster, open('algs\\kmeans_'+str(k_optim)+'.pkl', 'wb'))
         # Save cluster information
         clust_info = {
+            'clusters' : k_optim,
             'reg_vars' : reg_vars,
             'sum_sqr_dists' : cluster.inertia_,
             'centers' : cluster.cluster_centers_.tolist(),
@@ -147,16 +168,97 @@ def cluster(data, cluster_type, csv_path, mode, scaler):
         # Output pretty print data to txt for readability (not loading data)
         with open('clusters\\pprint_'+cluster_type+'_info.txt', 'w') as file:
                 file.write(json.dumps(clust_info, indent=4, sort_keys=True))
-        # Save data (append to non-standardized data)
-        df = pd.read_csv(csv_path)
-        df['cluster'] = labels
-        cluster_file = 'clusters\\clustered_' +cluster_type+'_'+str(k_optim)+'.csv' 
-        df.to_csv(cluster_file, index=False)
         # Generate false color plots of clusters
         false_color_clust(scaler.inverse_transform(cluster.cluster_centers_).astype(int), reg_vars, cluster_type)
-        
     elif mode == 'infer':
+        # Need to implement
         cluster = load_cluster(cluster_type)
+        # Save data (append to non-standardized data)
+        df = pd.read_csv(csv_path)
+        labels = cluster.predict(data)
+        df['cluster'] = labels
+        cluster_file = 'clusters\\clustered_' +cluster_type+'.csv' 
+        df.to_csv(cluster_file, index=False)
+        
+def get_reg(reg_type):
+    if reg_type == 'linear':
+        return LinearRegression()
+    if reg_type == 'lasso':
+        return Lasso(max_iter=10**5)
+    if reg_type == 'ridge':
+        return Ridge(max_iter=10**5)
+    if reg_type == 'elasticNet':
+        return ElasticNet(max_iter=10**5, random_state=0)
+
+def load_reg(reg_type):
+    algs = []
+    # Ensure first value in list is first cluster
+    regression_algs = sorted(glob.glob('regression\\'+reg_type+'\\*.pkl'))
+    for reg_alg in regression_algs:
+        algs.append(load(open(reg_alg, 'rb')))
+    return algs
+
+def regress(data, ssc, num_clust, reg_type, csv_path, mode, scaler):
+    # Assumes data already has clusters, implement automatically setting the
+    if num_clust == None:
+        print('NEED TO IMPLEMENT CLUSTERING FOR REGRESSION')
+    # Create dictionary to store metrics
+    reg_info = {'reg_vars' : reg_vars}
+    reg_folder = 'regression\\'+reg_type+'\\'
+    if not os.path.exists(reg_folder):
+        os.makedirs(reg_folder)
+    # Get cluster rows
+    df = pd.read_csv(csv_path)
+    clusters = df['cluster']
+    if mode == 'train':
+        for clust in range(num_clust):
+            c = str(clust)
+            # Extract data for clusters
+            data_clust = data[clusters == clust]
+            ssc_clust = ssc[clusters == clust]
+            # Get regressor
+            regressor = get_reg(reg_type)
+            # Fit regressor
+            reg = regressor.fit(data_clust, ssc_clust)
+            # Save regressor
+            dump(reg, open(reg_folder+c+'.pkl', 'wb'))
+            # Map to dictionary
+            reg_info[c+'_R2'] = reg.score(data_clust, ssc_clust)
+            reg_info[c+'_coefficients'] = reg.coef_.tolist()
+            reg_info[c+'_intercept'] = reg.intercept_
+        # Output regression info to json file
+        with open(reg_folder+'info.json', 'w') as file:
+            file.write(json.dumps(reg_info))
+        # Output pretty print data to txt for readability (not loading data)
+        with open(reg_folder+'pprint_info.txt', 'w') as file:
+                file.write(json.dumps(reg_info, indent=4, sort_keys=True))
+        # Save data (append to non-standardized data)
+        # df = pd.read_csv(csv_path)
+        # df['pred_SSC_mgL'] = reg.predict(data)
+        # reg_file = 'regression\\reg_' +reg_type+'.csv' 
+        # df.to_csv(reg_file, index=False)
+    elif mode == 'infer':
+        # Get regression algorithms for each cluster
+        regression_algs = load_reg(reg_type)
+        # Create dummy variable to store predicted SSC
+        pred_ssc = []
+        # Get cluster rows
+        df = pd.read_csv(csv_path)
+        rows = np.shape(data)[0]
+        clusters = df['cluster']
+        for i in range(rows):
+            # Extract regressor for this cluster
+            reg = regression_algs[clusters[i]]
+            # Extract data
+            data_row = data[i, :]
+            # Predict ssc
+            ssc = reg.predict(data_row.reshape(1,-1))
+            # Append predicted data
+            pred_ssc.append(ssc)
+        # Save data (append to non-standardized data)
+        df['pred_SSC_mgL'] = np.array(pred_ssc)
+        reg_file = 'regression\\reg_' +reg_type+'.csv' 
+        df.to_csv(reg_file, index=False)
         
 
 if __name__ == "__main__":
@@ -166,11 +268,11 @@ if __name__ == "__main__":
     """
     parser = argparse.ArgumentParser(description="Run a clustering regression pipeline on SSC data.")
     parser.add_argument(
-        "task", metavar="task", default="cluster", choices=("cluster","regress"), type=str, help="task of workflow"
-    )
+        "task", metavar="task", default="cluster", choices=("cluster","regression"), type=str, help="task of workflow")
     parser.add_argument("--mode", default="train", choices=("train","infer"), type=str, help="workflow mode")
     parser.add_argument("--csv", default="", type=str, help="path to CSV to import")
     parser.add_argument("--cluster_type", choices=("kMeans"), default="kMeans", type=str, help="clustering algorithm")
+    parser.add_argument("--reg_type", choices=("linear","lasso","ridge","elasticNet"), default="linear", type=str, help="regression algorithm")
     parser.add_argument("--reg_vars", choices=('raw bands', 'with drainage', 'with width', 'drainage and width'), default='raw bands', type=str, help='variables to regress')
     args = parser.parse_args()
     
@@ -178,23 +280,28 @@ if __name__ == "__main__":
     wd = 'D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python'
     print('Setting working directory as', 'D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python')
     os.chdir(wd)
+    # Set up subfolders
+    folders = ['algs\\','clusters\\','figures\\','regression\\']
+    for folder in folders:
+        if not os.path.exists(folder):
+            os.makedirs(folder)
     
     args = Namespace(
-        task = 'cluster',
-        mode='train',
-        csv="D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\tmp_vars\\ex_landsat.csv",
-        cluster_type = 'kMeans',
+        task = 'regression',
+        mode='infer',
+        #csv="D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\tmp_vars\\ex_landsat.csv",
+        csv ="D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python\\clusters\\clustered_kMeans.csv",
+        reg_type = "elasticNet",
         reg_vars = 'raw bands')
-
     
     # Extract regression variables
     reg_vars = get_regressors(args.reg_vars)
     # Extract and standardize data to numpy array
-    data, ssc_vals, scaler = standardize(args.csv, reg_vars, args.mode)
-        
+    data, ssc, scaler, num_clust = standardize(args.csv, reg_vars, args.mode)
+    
     if args.task == "cluster":
         cluster(data=data, cluster_type=args.cluster_type, csv_path=args.csv, mode=args.mode, scaler=scaler)
-    elif args.task == "regress":
-        ... # neeed to use ssc_vals in regression and
+    elif args.task == "regression":
+        regress(data=data, ssc=ssc, num_clust=num_clust, reg_type=args.reg_type, csv_path=args.csv, mode=args.mode, scaler=scaler)
     else:
-        raise ValueError("Unknown mode.")
+        raise ValueError("!!! Unknown mode !!!")
