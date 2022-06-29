@@ -315,14 +315,22 @@ if __name__ == "__main__":
         python sentinel-ssc cluster --mode 'train' --csv 'PATH TO CSV' --cluster_type 'cluster' --reg_vars 'raw bands' # Run clustering algorithm
     """
     parser = argparse.ArgumentParser(description="Run a clustering regression pipeline on SSC data.")
-    parser.add_argument(
-        "task", metavar="task", default="cluster", choices=("cluster","regression", "evaluate"), type=str, help="task of workflow")
+    parser.add_argument("task", metavar="task", choices=("cluster","regression", "evaluate"), type=str, help="task of workflow")
     parser.add_argument("--mode", default="infer", choices=("train","infer"), type=str, help="workflow mode")
-    parser.add_argument("--csv", default="", type=str, help="path to CSV to import")
-    parser.add_argument("--cluster_type", choices=("kMeans"), default="kMeans", type=str, help="clustering algorithm")
-    parser.add_argument("--reg_type", choices=("linear","lasso","ridge","elasticNet"), default="linear", type=str, help="regression algorithm")
-    parser.add_argument("--reg_vars", choices=('raw bands', 'station'), default='raw bands', type=str, help='variables to regress')
+    parser.add_argument("--csv", type=str, help="path to CSV to import")
+    parser.add_argument("--cluster_type", choices=("kMeans"), type=str, help="clustering algorithm")
+    parser.add_argument("--reg_type", choices=("linear","lasso","ridge","elasticNet"), type=str, help="regression algorithm")
+    parser.add_argument("--reg_vars", choices=('raw bands', 'station'), type=str, help='variables to regress')
+    parser.add_argument("--holdout", type=float, help='holdout percentage for validation set')
     args = parser.parse_args()
+    
+    # Check for correct args
+    if args.task == 'cluster' and (args.mode is None or args.csv is None or args.cluster_type is None):
+        parser.error("clustering requires --mode --csv -- cluster_type --reg_vars")
+    elif args.task == 'regression' and (args.mode is None or args.csv is None or args.reg_type is None or args.holdout is None):
+        parser.error("regression requires --mode --csv -- reg_type --reg_vars --holdout")
+    elif args.task == 'evaluate' and (args.csv is None):
+        parser.error("evaluation requires --csv")
     
     # Set working directory
     wd = 'D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python'
