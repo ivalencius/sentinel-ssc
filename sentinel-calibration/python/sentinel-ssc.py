@@ -10,13 +10,16 @@ import argparse
 import pandas as pd
 import numpy as np
 import os
+from pathlib import Path
 
 import matplotlib.pyplot as plt
-from matplotlib.colors import Normalize
+# from matplotlib.colors import Normalize
+# from scipy.stats import gaussian_kde
+# import mpl_scatter_density
 
 # Model Pre-processing
 from sklearn import preprocessing
-from sklearn.model_selection import train_test_split
+# from sklearn.model_selection import train_test_split
 from yellowbrick.cluster import KElbowVisualizer
 
 # Import Models
@@ -31,20 +34,16 @@ import glob
 from argparse import Namespace
 
 ### TO DO/ISSUES
-# - Set working directory in R
 # - Split training and test data (for regression)
-# - Save clustering centers to file
 # - Elbow graph to determine k - value: 
     # https://towardsdatascience.com/cheat-sheet-to-implementing-7-methods-for-selecting-optimal-number-of-clusters-in-python-898241e1d6ad
     # https://github.com/ivalencius/Machine_learning_INF264/blob/main/Homework/6/Hw6_INF264_template_part_1.ipynb
 # - Add tag to specify regression variables
 # - Cluster args hardcoded in
-# - https://scikit-learn.org/stable/modules/clustering.html#
 # - Make code pretty with docs and tqdm
 # - Determine max value of sensor 
 # - Implement other clustering
 # - Clustering and regression save to different folders
-# - Set up throwing errors --> ASSERTIONS
 
 def get_regressors(name):
     if name == 'raw bands':
@@ -52,12 +51,11 @@ def get_regressors(name):
                  'B5.B1', 'B7.B1', 'B3.B2', 'B4.B2', 'B5.B2', 'B7.B2', 'B4.B3', 
                  'B5.B3','B7.B3','B5.B4', 'B7.B4', 'B7.B5', 'B1.2', 'B2.2', 'B3.2', 
                  'B4.2', 'B5.2', 'B7.2']
-    elif name == 'with drainage':
-        ...
-    elif name == 'with width':
-        ...
-    elif name == 'drainage and width':
-        ...
+    elif name == 'station':
+        return ['B1','B2','B3','B4', 'B5', 'B6', 'B7', 'B2.B1','B3.B1','B4.B1',
+                 'B5.B1', 'B7.B1', 'B3.B2', 'B4.B2', 'B5.B2', 'B7.B2', 'B4.B3', 
+                 'B5.B3','B7.B3','B5.B4', 'B7.B4', 'B7.B5', 'B1.2', 'B2.2', 'B3.2', 
+                 'B4.2', 'B5.2', 'B7.2', 'station_nm'] # Add station name as dummy regression variable
 
 def standardize(csv_path, reg_vars, mode):
     try:
@@ -71,6 +69,11 @@ def standardize(csv_path, reg_vars, mode):
         ssc = df['SSC_mgL'].to_numpy()
     except:
         ssc = None
+    # Check to see if data has pred_SSC data
+    try:
+        pred_ssc = df['pred_SSC_mgL'].to_numpy()
+    except:
+        pred_ssc = None
     # Check to see if data is clustered
     try:
         num_clust = max(df['cluster'])+1
@@ -87,10 +90,10 @@ def standardize(csv_path, reg_vars, mode):
         scaler = preprocessing.RobustScaler() # JUSTIFY ROBUST SCALER
         data_std = scaler.fit_transform(data)
         dump(scaler, open('algs\\scaler.pkl', 'wb'))
-    if mode == 'infer':
+    elif mode == 'evaluate' or mode == 'infer':
         scaler = load(open('algs\\scaler.pkl', 'rb'))
         data_std = scaler.transform(data)
-    return data_std, ssc, scaler, num_clust
+    return data_std, ssc, pred_ssc, scaler, num_clust
 
 def false_color_clust(centers, reg_vars, cluster_type):
     # Need to scale inputs into 0-255 range so need to know maximum sensor value
@@ -124,7 +127,7 @@ def false_color_clust(centers, reg_vars, cluster_type):
     
 def get_cluster(cluster_type, num_clust = None):
     if num_clust == None:
-        if cluster_type == 'kMeans':
+        if cluster_type == 'kMeans': 
             return cl.KMeans(n_init=20, verbose=0, random_state=0)
     elif num_clust != None:
         if cluster_type == 'kMeans':
@@ -261,6 +264,51 @@ def regress(data, ssc, num_clust, reg_type, csv_path, mode, scaler):
         df.to_csv(reg_file, index=False)
         
 
+def evaluate(ssc, pred_ssc, num_clust, csv_path):
+    assert np.shape(ssc) == np.shape(pred_ssc), "Number of predicted ssc measurements not equal to number of in-situ measurements"
+    # Convert to int to make plots look better (no 10**-3 artifacts and such)
+    ssc = ssc.astype(int)
+    pred_ssc = pred_ssc.astype(int)
+    # Extract csv basename
+    csv_name = Path(csv_path).stem
+    
+    # # Set bounds to remove outliers
+    # max_ssc = np.inf
+    # # Filter by in-situ ssc
+    # rows = ssc < max_ssc
+    # ssc = ssc[rows]
+    # pred_ssc = pred_ssc[rows]
+    # # Filter by predicted ssc
+    # rows = pred_ssc < max_ssc
+    # ssc = ssc[rows]
+    # pred_ssc = pred_ssc[rows]
+    
+    # Normal 1:1 plot
+    fig, ax = plt.subplots()
+    ax.scatter(ssc, pred_ssc, color='black', alpha = 0.05)
+    plt.xscale('log')
+    plt.yscale('log')
+    lims = [np.min([ax.get_xlim(), ax.get_ylim()]), np.max([ax.get_xlim(), ax.get_ylim()])]
+    ax.set_xlim(lims)
+    ax.set_ylim(lims)
+    lims = [0, np.max([ax.get_xlim(), ax.get_ylim()])]
+    ax.plot(lims, lims, '--', color='red')
+    #ax.grid(False)
+    #ax.axis('off')
+    plt.xlabel('in situ SSC (mg/L)')
+    plt.ylabel('Satellite-estimated SSC (mg/L)')
+    plt.title(csv_name+' SSC Correlation')
+    plt.savefig('figures\\'+csv_name+'_correlation.pdf')
+    
+    # Density plot -- NEED TO IMPLEMENT
+    # fig = plt.figure()
+    # ax = fig.add_subplot(1, 1, 1, projection='scatter_density')
+    # ax.scatter_density(ssc, pred_ssc, dpi=10, cmap='jet')
+    # plt.show()
+    
+
+        
+
 if __name__ == "__main__":
     """
     Usage:
@@ -268,12 +316,12 @@ if __name__ == "__main__":
     """
     parser = argparse.ArgumentParser(description="Run a clustering regression pipeline on SSC data.")
     parser.add_argument(
-        "task", metavar="task", default="cluster", choices=("cluster","regression"), type=str, help="task of workflow")
-    parser.add_argument("--mode", default="train", choices=("train","infer"), type=str, help="workflow mode")
+        "task", metavar="task", default="cluster", choices=("cluster","regression", "evaluate"), type=str, help="task of workflow")
+    parser.add_argument("--mode", default="infer", choices=("train","infer"), type=str, help="workflow mode")
     parser.add_argument("--csv", default="", type=str, help="path to CSV to import")
     parser.add_argument("--cluster_type", choices=("kMeans"), default="kMeans", type=str, help="clustering algorithm")
     parser.add_argument("--reg_type", choices=("linear","lasso","ridge","elasticNet"), default="linear", type=str, help="regression algorithm")
-    parser.add_argument("--reg_vars", choices=('raw bands', 'with drainage', 'with width', 'drainage and width'), default='raw bands', type=str, help='variables to regress')
+    parser.add_argument("--reg_vars", choices=('raw bands', 'station'), default='raw bands', type=str, help='variables to regress')
     args = parser.parse_args()
     
     # Set working directory
@@ -287,21 +335,24 @@ if __name__ == "__main__":
             os.makedirs(folder)
     
     args = Namespace(
-        task = 'regression',
+        task = 'evaluate',
         mode='infer',
         #csv="D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\tmp_vars\\ex_landsat.csv",
-        csv ="D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python\\clusters\\clustered_kMeans.csv",
-        reg_type = "elasticNet",
+        #csv ="D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python\\clusters\\clustered_kMeans.csv",
+        csv = "D:\\valencig\\Thesis\sentinel-ssc\\sentinel-calibration\\python\\regression\\reg_elasticNet.csv",
+        #reg_type = "elasticNet",
         reg_vars = 'raw bands')
     
     # Extract regression variables
     reg_vars = get_regressors(args.reg_vars)
     # Extract and standardize data to numpy array
-    data, ssc, scaler, num_clust = standardize(args.csv, reg_vars, args.mode)
+    data, ssc, pred_ssc, scaler, num_clust = standardize(args.csv, reg_vars, args.mode)
     
     if args.task == "cluster":
         cluster(data=data, cluster_type=args.cluster_type, csv_path=args.csv, mode=args.mode, scaler=scaler)
     elif args.task == "regression":
         regress(data=data, ssc=ssc, num_clust=num_clust, reg_type=args.reg_type, csv_path=args.csv, mode=args.mode, scaler=scaler)
+    elif args.task == "evaluate":
+        evaluate(ssc=ssc, pred_ssc=pred_ssc, num_clust=num_clust, csv_path=args.csv)
     else:
-        raise ValueError("!!! Unknown mode !!!")
+        raise ValueError("!!! Unknown mode or missing data !!!")
