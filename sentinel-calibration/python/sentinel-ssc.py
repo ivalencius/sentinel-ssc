@@ -201,19 +201,35 @@ def load_reg(reg_type):
         algs.append(load(open(reg_alg, 'rb')))
     return algs
 
-def regress(data, ssc, num_clust, reg_type, csv_path, mode, scaler):
+def regress(data, ssc, num_clust, reg_type, csv_path, mode, scaler, holdout):
     # Assumes data already has clusters, implement automatically setting the
     if num_clust == None:
         print('NEED TO IMPLEMENT CLUSTERING FOR REGRESSION')
     # Create dictionary to store metrics
-    reg_info = {'reg_vars' : reg_vars}
+    reg_info = {'reg_vars' : reg_vars,
+                'holdout_frac' : holdout}
     reg_folder = 'regression\\'+reg_type+'\\'
     if not os.path.exists(reg_folder):
         os.makedirs(reg_folder)
     # Get cluster rows
     df = pd.read_csv(csv_path)
-    clusters = df['cluster']
+    clusters = df['cluster'].to_numpy()
     if mode == 'train':
+        assert len(data) == len(ssc) and len(ssc) == len(clusters)
+        num_samples = len(data) # rows x cols
+        num_holdout = int(holdout * num_samples)
+        np.random.seed(0)
+        random_rows = np.random.choice(len(ssc), size=num_holdout, replace=False)
+        data_holdout = np.copy(data[random_rows])
+        ssc_holdout = np.copy(ssc[random_rows])
+        clusters_holdout = np.copy(clusters[random_rows])
+        # Set rows not selected to null
+        data = np.delete(data, obj=random_rows, axis=0)
+        ssc = np.delete(ssc, obj=random_rows, axis=0)
+        clusters = np.delete(clusters, obj=random_rows, axis=0)
+        
+        assert len(data_holdout) == len(ssc_holdout) and len(ssc_holdout) == len(clusters_holdout)
+        
         for clust in range(num_clust):
             c = str(clust)
             # Extract data for clusters
@@ -225,8 +241,14 @@ def regress(data, ssc, num_clust, reg_type, csv_path, mode, scaler):
             reg = regressor.fit(data_clust, ssc_clust)
             # Save regressor
             dump(reg, open(reg_folder+c+'.pkl', 'wb'))
-            # Map to dictionary
-            reg_info[c+'_R2'] = reg.score(data_clust, ssc_clust)
+            # Extract data from holdout set
+            metric_data = data_holdout[clusters_holdout == clust]
+            metric_ssc = ssc_holdout[clusters_holdout == clust]
+            # Get metrics and export
+            reg_info[c+'_train_samples'] = len(ssc_clust)
+            reg_info[c+'_validation_samples'] = len(metric_ssc)
+            reg_info[c+'_training_frac'] = len(ssc_clust) / (len(ssc_clust) + len(metric_ssc))
+            reg_info[c+'_R2'] = reg.score(metric_data, metric_ssc)
             reg_info[c+'_coefficients'] = reg.coef_.tolist()
             reg_info[c+'_intercept'] = reg.intercept_
         # Output regression info to json file
@@ -259,7 +281,7 @@ def regress(data, ssc, num_clust, reg_type, csv_path, mode, scaler):
             # Append predicted data
             pred_ssc.append(ssc)
         # Save data (append to non-standardized data)
-        df['pred_SSC_mgL'] = np.array(pred_ssc)
+        df['pred_SSC_mgL'] = np.array(pred_ssc).astype(int)
         reg_file = 'regression\\reg_' +reg_type+'.csv' 
         df.to_csv(reg_file, index=False)
         
@@ -327,8 +349,10 @@ if __name__ == "__main__":
     # Check for correct args
     if args.task == 'cluster' and (args.mode is None or args.csv is None or args.cluster_type is None):
         parser.error("clustering requires --mode --csv -- cluster_type --reg_vars")
-    elif args.task == 'regression' and (args.mode is None or args.csv is None or args.reg_type is None or args.holdout is None):
-        parser.error("regression requires --mode --csv -- reg_type --reg_vars --holdout")
+    elif args.task == 'regression' and args.mode == 'train' and (args.csv is None or args.reg_type is None or args.holdout is None):
+        parser.error("training regression requires --csv -- reg_type --reg_vars --holdout")
+    elif args.task == 'regression' and args.mode == 'infer' and (args.csv is None or args.reg_type is None):
+        parser.error("inferring regression requires --csv -- reg_type")
     elif args.task == 'evaluate' and (args.csv is None):
         parser.error("evaluation requires --csv")
     
@@ -347,9 +371,11 @@ if __name__ == "__main__":
         mode='infer',
         #csv="D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\tmp_vars\\ex_landsat.csv",
         #csv ="D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python\\clusters\\clustered_kMeans.csv",
-        csv = "D:\\valencig\\Thesis\sentinel-ssc\\sentinel-calibration\\python\\regression\\reg_elasticNet.csv",
-        #reg_type = "elasticNet",
-        reg_vars = 'raw bands')
+        csv = "D:\\valencig\\Thesis\sentinel-ssc\\sentinel-calibration\\python\\regression\\reg_ridge.csv",
+        #reg_type = "ridge",
+        reg_vars = 'raw bands',
+        #holdout = None
+        )
     
     # Extract regression variables
     reg_vars = get_regressors(args.reg_vars)
@@ -359,8 +385,8 @@ if __name__ == "__main__":
     if args.task == "cluster":
         cluster(data=data, cluster_type=args.cluster_type, csv_path=args.csv, mode=args.mode, scaler=scaler)
     elif args.task == "regression":
-        regress(data=data, ssc=ssc, num_clust=num_clust, reg_type=args.reg_type, csv_path=args.csv, mode=args.mode, scaler=scaler)
+        regress(data=data, ssc=ssc, num_clust=num_clust, reg_type=args.reg_type, csv_path=args.csv, mode=args.mode, scaler=scaler, holdout=args.holdout)
     elif args.task == "evaluate":
         evaluate(ssc=ssc, pred_ssc=pred_ssc, num_clust=num_clust, csv_path=args.csv)
     else:
-        raise ValueError("!!! Unknown mode or missing data !!!")
+        raise ValueError("!!! Unknown mode !!!")
