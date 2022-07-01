@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 # from matplotlib.colors import Normalize
 # from scipy.stats import gaussian_kde
 # import mpl_scatter_density
+from sklearn.neighbors import KernelDensity
 
 # Model Pre-processing
 from sklearn import preprocessing
@@ -286,9 +287,26 @@ def regress(data, ssc, num_clust, reg_type, csv_path, mode, scaler, holdout):
         df.to_csv(reg_file, index=False)
         
 
+def kde2D(x, y, bandwidth, xbins=100j, ybins=100j, **kwargs): 
+    """Build 2D kernel density estimate (KDE)."""
+
+    # create grid of sample locations (default: 100x100)
+    xx, yy = np.mgrid[x.min():x.max():xbins, 
+                      y.min():y.max():ybins]
+
+    xy_sample = np.vstack([yy.ravel(), xx.ravel()]).T
+    xy_train  = np.vstack([y, x]).T
+
+    kde_skl = KernelDensity(bandwidth=bandwidth, **kwargs)
+    kde_skl.fit(xy_train)
+
+    # score_samples() returns the log-likelihood of the samples
+    z = np.exp(kde_skl.score_samples(xy_sample))
+    return xx, yy, np.reshape(z, xx.shape)
+
 def evaluate(ssc, pred_ssc, num_clust, csv_path):
     assert np.shape(ssc) == np.shape(pred_ssc), "Number of predicted ssc measurements not equal to number of in-situ measurements"
-    # Convert to int to make plots look better (no 10**-3 artifacts and such)
+    # Ensure int ssc measurementes (no 10**-3 artifacts and such)
     ssc = ssc.astype(int)
     pred_ssc = pred_ssc.astype(int)
     # Extract csv basename
@@ -315,17 +333,22 @@ def evaluate(ssc, pred_ssc, num_clust, csv_path):
     ax.set_ylim(lims)
     lims = [0, np.max([ax.get_xlim(), ax.get_ylim()])]
     ax.plot(lims, lims, '--', color='red')
-    #ax.grid(False)
-    #ax.axis('off')
     plt.xlabel('in situ SSC (mg/L)')
     plt.ylabel('Satellite-estimated SSC (mg/L)')
     plt.title(csv_name+' SSC Correlation')
     plt.savefig('figures\\'+csv_name+'_correlation.pdf')
     
     # Density plot -- NEED TO IMPLEMENT
-    # fig = plt.figure()
-    # ax = fig.add_subplot(1, 1, 1, projection='scatter_density')
-    # ax.scatter_density(ssc, pred_ssc, dpi=10, cmap='jet')
+    # m1 = np.random.normal(size=1000)
+    # m2 = np.random.normal(scale=0.5, size=1000)
+    # fig, ax = plt.subplots()
+    # xx, yy, zz = kde2D(ssc, pred_ssc, 1.0)
+    # #ax = fig.add_subplot(1, 1, 1, projection='scatter_density')
+    # ax.grid(False)
+    # #plt.xscale('log')
+    # #plt.yscale('log')
+    # ax.pcolormesh(xx, yy, zz)
+    # ax.scatter(ssc, pred_ssc, s=2)
     # plt.show()
     
 
