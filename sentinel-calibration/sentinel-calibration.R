@@ -51,13 +51,36 @@ library(rgdal)
 library(maptools)
 library(PBSmapping)
 
+library(reticulate)
 
 # TO DO/ISSUES
-# - Saving extents only saves first row
-# - Some stations don't have width/other information
-# - Get more sources of data, only have 85k right now
-# - Fix data acquisition dates for Sentinel
-# - Implement various clutering methods in python once Sentinel and SSC harmonized
+# - Extract based on stream width or drainage area
+# - Extract station points
+
+### FOR QUICK USE WITH SENTINEL-CALIBRATION.py ###
+# d1 <- read.csv("D:/valencig/Thesis/sentinel-ssc/sentinel-calibration/python/regression/reg_linear.csv")
+# d2 <- read.csv("D:/valencig/Thesis/sentinel-ssc/sentinel-calibration/python/regression/reg_lasso.csv")
+# d3 <- read.csv("D:/valencig/Thesis/sentinel-ssc/sentinel-calibration/python/regression/reg_ridge.csv")
+# d4 <- read.csv("D:/valencig/Thesis/sentinel-ssc/sentinel-calibration/python/regression/reg_elasticNet.csv")
+# d5 <- read.csv("D:/valencig/Thesis/chattahoochee-dams/chattahoochee-dams-exports/SSC_pred.csv")
+# data = data.table(distance_km = d1$distance_km, 
+#                   linear = d1$pred_SSC_mgL,
+#                   lasso = d2$pred_SSC_mgL,
+#                   ridge = d3$pred_SSC_mgL,
+#                   elasticNet = d4$pred_SSC_mgL,
+#                   dethier = d5$SSC_mgL)
+# ggplot(data, aes(x = distance_km, y = linear)) +
+#   stat_summary(geom = 'line', fun = 'mean', aes(color = 'linear')) +
+#   stat_summary(geom = 'line', fun = 'mean', aes(x = distance_km, y = lasso, color = 'lasso')) +
+#   stat_summary(geom = 'line', fun = 'mean', aes(x = distance_km, y = ridge, color = 'ridge')) +
+#   stat_summary(geom = 'line', fun = 'mean', aes(x = distance_km, y = elasticNet, color = 'elasticNet')) +
+#   stat_summary(geom = 'line', fun = 'mean', aes(x = distance_km, y = dethier, color = 'Evan')) +
+#   #facet_wrap(.~paste0('Decade: ', decade)) + # comment out to display mean across all time periods
+#   theme_bw()+
+#   #geom_hline(yintercept=0)+
+#   labs(title='Regressions',
+#     x = 'distance downstream', 
+#        y = 'SSC (mg/L)')
 
 #### SET DIRECTORIES ####
 
@@ -120,8 +143,8 @@ set.seed(1)
 
 # From USGS
 print('IMPORTING IN SITU DATA')
-startDate <- '2014-01-01'
-endDate <- '2022-06-17'
+startDate <- '2017-01-01'
+endDate <- '2022-06-30'
 cat('\t','-> Start Date:', startDate,'\n')
 cat('\t','-> End Date:', endDate,'\n')
 
@@ -160,12 +183,28 @@ usgs_width <- data.table(readWQPdata(siteNumbers=usgs_stations,
 usgs_width <- usgs_width %>% group_by(site_no) %>% summarize(width_m = mean(width_m))
 # Match stream width to station data
 wqp_info <- left_join(wqp_info, usgs_width, by=("site_no"="site_no"))
+# Get rows with no basin area and try to extract it from NLDI extent (may only work for a few sites)
+# no_drainage <- wqp_info %>% filter(is.na(wqp_info$drainage_area_km2))
+# for (row in 1:nrow(no_drainage)){
+#   tryCatch({
+#     station_name <- no_drainage$station_nm[i]
+#     lat <- no_drainage$lat[i]
+#     lon <- no_drainage$lon[i]
+#     basin <- findNLDI(location = c(lon, lat), find = 'basin')
+#     drainage_m2 <- basin$basin$geometry %>% st_area()
+#     drainage_km2 <- drainage_m2 / 1000000
+#     no_drainage[i]$drainage_area_km2 <- drainage_km2
+#   },
+#   error = function(e) {
+#     print('no basin found')
+#   })
+# }
 # Join station data and SSC data
 usgs_insitu_raw <- left_join(usgs_insitu_raw, wqp_info, by=("site_no"="site_no"))
 # Remove na data
-usgs_insitu_raw <- usgs_insitu_raw[!is.na(usgs_insitu_raw$width_m)]
+#usgs_insitu_raw <- usgs_insitu_raw[!is.na(usgs_insitu_raw$width_m)]
 # Remove stations less than 30 m wide
-usgs_insitu_raw <- usgs_insitu_raw[usgs_insitu_raw$width_m >= 30,]
+usgs_insitu_raw <- usgs_insitu_raw %>% filter(usgs_insitu_raw$width_m >= 30 | usgs_insitu_raw$drainage_area_km2 >= 3000)
 # All data stored as characters, convert some columns to numbers
 usgs_insitu_raw$lat <- as.numeric(usgs_insitu_raw$lat)
 usgs_insitu_raw$lon <- as.numeric(usgs_insitu_raw$lon)
@@ -175,7 +214,7 @@ usgs_insitu_raw$width_m <- as.numeric(usgs_insitu_raw$width_m)
 usgs_insitu_raw$SSC_mgL <- as.numeric(usgs_insitu_raw$SSC_mgL)
 
 # Save and load variables for quick execution
-save(usgs_insitu_raw, file=paste0(wd_root, '/tmp_vars/usgs_insitu_raw.RData'))
+# save(usgs_insitu_raw, file=paste0(wd_root, '/tmp_vars/usgs_insitu_raw.RData'))
 load(paste0(wd_root, '/tmp_vars/usgs_insitu_raw.RData'))
 
 ### PLOT USGS SITE LOCATIONS: No Landsat check###
@@ -194,7 +233,7 @@ usgs_no_landsat_plot <- ggplot() +
           aes(size = num_samples),
           color = '#5ab4ac',
           shape = 1,
-          fill = NA) + 
+          fill = NA) +
   scale_size_continuous(breaks= pretty_breaks()) +
   labs(title = 'Viable USGS Stations (>= 30m stream width)',
        caption = paste0(startDate, ' to ', endDate, ': total of ', length(unique(usgs_insitu_raw$site_no)), ' sites'))
@@ -203,12 +242,19 @@ ggsave(usgs_no_landsat_plot, filename = paste0(wd_figures, 'usgs_stations_no_lan
        width = 10, height = 8)
 
 ### GET NLDI EXTENTS FROM ALL STATIONS ###
+# This code only needs to be run once, the shape files it creates are used to pull Sentinel Data from GEE
 print('IMPORTING NLDI EXTENTS FOR LANDSAT ACQUISITION')
 
 wd_extent<- paste0(wd_exports, 'station_transects/')
 if(!dir.exists(wd_extent)){
   dir.create(wd_extent)}
 cat('\t','-> Saving them to:', wd_extent,'\n')
+# Save points as shape file
+station_points <- data.frame(station=wqp_info$site_no, lat=as.numeric(wqp_info$lat), lon=as.numeric(wqp_info$lon))
+station_points <- SpatialPointsDataFrame(coords = station_points[,c('lon','lat')], 
+                                         data=station_points,
+                                         proj4string = projection)
+st_write(st_as_sf(station_points), paste0(wd_extent,'station_points_updated.shp'), quiet=TRUE, append=FALSE)
 
 # To test querying sentinel data at varying distances from stations
 station_distances <- c(2, 5, 8, 10, 15, 20)
@@ -224,6 +270,7 @@ for (dist in station_distances) {
   pb <- txtProgressBar(0, nrow(bare_station), style = 3)
     # Loop over all unique stations
     for (row in 1:nrow(bare_station)){
+      print(row)
       setTxtProgressBar(pb, row)
       # Extract lat and lon from dataframe of unique station data
       lon1 <- as.numeric(bare_station[row, "lon"][[1]])
@@ -236,7 +283,7 @@ for (dist in station_distances) {
                            distance_km = dist)
         # Combine upper and lower main channel
         merged_extent <- st_join(extent$UM_flowlines, extent$DM_flowlines)
-      },
+        },
       error = function(e) {
         # Some sites don't have NLDI extents so just store location of station
         merged_extent <- findNLDI(wqp = station_num)
@@ -244,7 +291,7 @@ for (dist in station_distances) {
       # Combine line extents into one, apply label of station
       reduce_extent <- data.frame(station = station_num, st_combine(merged_extent$geometry))
       transects_df <- rbind(transects_df, reduce_extent)
-      if (row == 1){
+      if (row == nrow(bare_station)){
         distance_transects <- rbind(distance_transects, reduce_extent)
       }
     }
@@ -254,7 +301,7 @@ for (dist in station_distances) {
   # Save transects as one shapefile --> NEED TO FIX
   st_write(transects_sf, paste0(wd_extent,'transects_',dist,'km.shp'), quiet=TRUE, append=FALSE)
 }
-#ggplot() + geom_sf(data=transects_sf)
+ggplot() + geom_sf(data=foo$DD_flowlines)
 # Make comparison plot 
 # theme to remove tick marks and axes labels
 tick_theme <- theme_bw() + theme(axis.text.x=element_blank(),
@@ -303,3 +350,143 @@ distance_plot <- grid.arrange(p1, p2, p3, p4, p5, p6,
                               ncol=3)
 ggsave(distance_plot, filename = paste0(wd_figures, 'transect_lengths.pdf'),
        width = 10, height = 8)
+
+### Clustering ###
+# print('RUNNING CLUSTERING ALGORITHMS')
+# wd_clusters<- paste0(wd_exports, 'clusters/')
+# if(!dir.exists(wd_clusters)){
+#   dir.create(wd_clusters)}
+# cat('\t','-> Saving cluster data to:', wd_clusters,'\n')
+# 
+# # Need to not use conda env for final code running
+# use_condaenv('sentinel-ssc', required = TRUE)
+# system('python -c print(hello world)')
+
+### IMPORT AND HARMONIZE SENTINEL DATA ###
+lag_days <- 2
+wd_gee <- paste0(wd_exports,'GEE_raw/')
+gee_files <- list.files(path = wd_gee, pattern = '*.csv', full.names = TRUE)
+gee_data <- data.table()
+for (file in gee_files){
+  gee_raw <- read.csv(file)
+  gee_clean <- gee_raw[ , !(names(gee_raw) %in% c('system.index','.geo'))]
+  gee_clean[,'date'] <- as.Date(gee_clean$date)
+  setnames(gee_clean, 
+           old = c('B1_median',
+                   'B2_median',
+                   'B3_median',
+                   'B4_median',
+                   'B5_median',
+                   'B6_median',
+                   'B7_median',
+                   'B8_median',
+                   'B8A_median',
+                   'B9_median',
+                   'B11_median',
+                   'B12_median'), new = c('B1','B2','B3','B4','B5','B6','B7','B8','B8A','B9','B11','B12'))
+  gee_data <- rbind(gee_data, setDT(gee_clean))
+}
+usgs_sentinel_harmonzied <- setDT(gee_clean)[
+  # Create lead lag times and add to DF
+  ,':='(match_dt_start = date - lag_days,
+        match_dt_end = date + lag_days)][
+          # Match by dates inside lead-lag range
+          usgs_insitu_raw[,':='(match_dt = as.Date(usgs_insitu_raw$sample_dt))],
+          on = .(station == site_no, match_dt_start <= match_dt, match_dt_end >= match_dt)][
+            ,lag_days := as.numeric(difftime(sample_dt, date),'days')][
+              # Remove duplicated columns
+              ,':='(station = NULL, match_dt_start = NULL, match_dt_end = NULL, i.lat = NULL, i.lon = NULL)
+              ][ # Add squared columns
+                ,':='(B1.2 = B1^2,
+                      B2.2 = B2^2,
+                      B3.2 = B3^2,
+                      B4.2 = B4^2,
+                      B5.2 = B5^2,
+                      B6.2 = B6^2,
+                      B7.2 = B7^2,
+                      B8.2 = B8^2,
+                      B8A.2 = B8A^2,
+                      B9.2 = B9^2,
+                      B11.2 = B11^2,
+                      B12.2 = B12^2,
+                      # Add band ratios
+                      B2.B1=B2/B1,
+                      B3.B1=B3/B1,
+                      B4.B1=B4/B1,
+                      B5.B1=B5/B1,
+                      B6.B1=B6/B1,
+                      B7.B1=B7/B1,
+                      B8.B1=B8/B1,
+                      B8A.B1=B8A/B1,
+                      B9.B1=B9/B1,
+                      B11.B1=B11/B1,
+                      B12.B1=B12/B1,
+                      
+                      B3.B2=B3/B2,
+                      B4.B2=B4/B2,
+                      B5.B2=B5/B2,
+                      B6.B2=B6/B2,
+                      B7.B2=B7/B2,
+                      B8.B2=B8/B2,
+                      B8A.B2=B8A/B2,
+                      B9.B2=B9/B2,
+                      B11.B2=B11/B2,
+                      B12.B2=B12/B2,
+                      
+                      B4.B3=B4/B3,
+                      B5.B3=B5/B3,
+                      B6.B3=B6/B3,
+                      B7.B3=B7/B3,
+                      B8.B3=B8/B3,
+                      B8A.B3=B8A/B3,
+                      B9.B3=B9/B3,
+                      B11.B3=B11/B3,
+                      B12.B3=B12/B3,
+                      
+                      B5.B4=B5/B4,
+                      B6.B4=B6/B4,
+                      B7.B4=B7/B4,
+                      B8.B4=B8/B4,
+                      B8A.B4=B8A/B4,
+                      B9.B4=B9/B4,
+                      B11.B4=B11/B4,
+                      B12.B4=B12/B4,
+                      
+                      B6.B5=B6/B5,
+                      B7.B5=B7/B5,
+                      B8.B5=B8/B5,
+                      B8A.B5=B8A/B5,
+                      B9.B5=B9/B5,
+                      B11.B5=B11/B5,
+                      B12.B5=B12/B5,
+                      
+                      B7.B6=B7/B6,
+                      B8.B6=B8/B6,
+                      B8A.B6=B8A/B6,
+                      B9.B6=B9/B6,
+                      B11.B6=B11/B6,
+                      B12.B6=B12/B6,
+                      
+                      B8.B7=B8/B7,
+                      B8A.B7=B8A/B7,
+                      B9.B7=B9/B7,
+                      B11.B7=B11/B7,
+                      B12.B7=B12/B7,
+                      
+                      B8A.B8=B8A/B8,
+                      B9.B8=B9/B8,
+                      B11.B8=B11/B8,
+                      B12.B8=B12/B8,
+                      
+                      B9.B8A=B9/B8A,
+                      B11.B8A=B11/B8A,
+                      B12.B8A=B12/B8A,
+                      
+                      B11.B9=B11/B9,
+                      B12.B9=B12/B9,
+                      
+                      B12.B11=B12/B11
+                      )][# Remove rows without images
+                        !is.na(B1)
+                        ]
+
