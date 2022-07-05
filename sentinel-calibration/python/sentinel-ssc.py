@@ -14,10 +14,12 @@ from pathlib import Path
 import math
 
 import matplotlib.pyplot as plt
+from matplotlib import patches
+from matplotlib import colors
 # from matplotlib.colors import Normalize
 # from scipy.stats import gaussian_kde
 # import mpl_scatter_density
-from sklearn.neighbors import KernelDensity
+# from sklearn.neighbors import KernelDensity
 
 # Model Pre-processing
 from sklearn import preprocessing
@@ -350,9 +352,52 @@ def relative_error_fxn(row):
     if row[0] != 0 and row[1] != 0:
         return math.log10(abs(row[1])/abs(row[0]))
     else:
-        return 0 
+        return 0
+    
+def false_color_reg(data, pred_ssc, num_clust, csv_path, reg_vars):
+    df = pd.read_csv(csv_path)
+    max_val = 2500
+    # Get indexes of RGB in reg vars
+    r = reg_vars.index('B4') 
+    g = reg_vars.index('B3') 
+    b = reg_vars.index('B2')
+    # Set SSC levels
+    ssc_levels = [50, 100, 250, 500, 750, 10**4]
+    fig, ax = plt.subplots()
+    for clust in range(num_clust):
+        data_clust = df.loc[df['cluster'] == clust]
+        for i in range(len(ssc_levels)):
+            ssc_max = ssc_levels[i]
+            if i == 0:
+                ssc_min = 0
+            else:
+                ssc_min = ssc_levels[i-1]
+            # Filter by max and min
+            ssc_data = data_clust.loc[(data_clust['SSC_mgL'] <= ssc_max) & (data_clust['SSC_mgL'] >= ssc_min)]
+            ssc_data = ssc_data[reg_vars].to_numpy()
+            # Get average value of bands
+            med = np.median(ssc_data, axis=0)
+            rgb = ((1 / max_val * med[r]), (1 / max_val * med[g]), (1 / max_val * med[b]), 1)
+            rectangle = patches.Rectangle((clust, i), 1, 1, facecolor=rgb)
+            ax.add_patch(rectangle)
+    # Make axes and ticks look categorical
+    ax.set_yticks([0.5, 1.5, 2.5, 3.5, 4.5, 5.5])
+    ax.set_yticklabels(['0-50', '50-100', '100-250', '250-500', '500-750', '>750'])
+    ax.set_ylabel('USGS Determined SSC (mg/L)')
+    ax.set_xticks([0.5, 1.5, 2.5, 3.5])
+    ax.set_xticklabels(['1', '2', '3', '4'])
+    # Deal with removing grid and chaning outline to black
+    plt.margins(x=0.04, y=0.04)
+    plt.grid(False)
+    ax.spines['bottom'].set_color('black')
+    ax.spines['top'].set_color('black') 
+    ax.spines['right'].set_color('black')
+    ax.spines['left'].set_color('black')
+    ax.set_xlabel('River Grouping')
+    plt.title('Median "True Color" Appearance')
+    plt.savefig('figures\\ssc_level_viz.pdf')
 
-def evaluate(ssc, pred_ssc, num_clust, csv_path):
+def evaluate(data, ssc, pred_ssc, num_clust, csv_path, reg_vars):
     assert np.shape(ssc) == np.shape(pred_ssc), "Number of predicted ssc measurements not equal to number of in-situ measurements"
     # Ensure int ssc measurementes (no small decimal artifacts)
     ssc = ssc.astype(int)
@@ -381,6 +426,8 @@ def evaluate(ssc, pred_ssc, num_clust, csv_path):
     plt.figtext(0.2, 0.9, 'Relative error = '+str(round(relative_error, 3)), ha='center', va='center',transform=ax.transAxes)
     plt.title(csv_name+' SSC Correlation')
     plt.savefig('figures\\'+csv_name+'_correlation.pdf')
+    
+    false_color_reg(data, pred_ssc, num_clust, csv_path, reg_vars)
     
     # Density plot -- NEED TO IMPLEMENT
     # # m1 = np.random.normal(size=1000)
@@ -452,6 +499,6 @@ if __name__ == "__main__":
     elif args.task == "regression":
         regress(data=data, ssc=ssc, num_clust=num_clust, reg_type=args.reg_type, csv_path=args.csv, mode=args.mode, scaler=scaler, holdout=args.holdout, reg_vars=reg_vars, reg_names=args.reg_vars)
     elif args.task == "evaluate":
-        evaluate(ssc=ssc, pred_ssc=pred_ssc, num_clust=num_clust, csv_path=args.csv)
+        evaluate(data=data, ssc=ssc, pred_ssc=pred_ssc, num_clust=num_clust, csv_path=args.csv, reg_vars=reg_vars)
     else:
         raise ValueError("!!! Unknown mode !!!")
