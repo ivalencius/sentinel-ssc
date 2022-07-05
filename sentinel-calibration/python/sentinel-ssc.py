@@ -35,11 +35,9 @@ import glob
 from argparse import Namespace
 
 ### TO DO/ISSUES
-# - Split training and test data (for regression)
-# - Elbow graph to determine k - value: 
-    # https://towardsdatascience.com/cheat-sheet-to-implementing-7-methods-for-selecting-optimal-number-of-clusters-in-python-898241e1d6ad
-    # https://github.com/ivalencius/Machine_learning_INF264/blob/main/Homework/6/Hw6_INF264_template_part_1.ipynb
 # - Add tag to specify regression variables
+# - Standardize ssc
+# - https://stackoverflow.com/questions/31029340/how-to-adjust-scaled-scikit-learn-logicistic-regression-coeffs-to-score-a-non-sc
 # - Cluster args hardcoded in
 # - Make code pretty with docs and tqdm
 # - Determine max value of sensor 
@@ -47,16 +45,29 @@ from argparse import Namespace
 # - Clustering and regression save to different folders
 
 def get_regressors(name):
-    if name == 'raw bands':
-        return  ['B1','B2','B3','B4', 'B5', 'B6', 'B7', 'B2.B1','B3.B1','B4.B1',
-                 'B5.B1', 'B7.B1', 'B3.B2', 'B4.B2', 'B5.B2', 'B7.B2', 'B4.B3', 
-                 'B5.B3','B7.B3','B5.B4', 'B7.B4', 'B7.B5', 'B1.2', 'B2.2', 'B3.2', 
-                 'B4.2', 'B5.2', 'B7.2']
-    elif name == 'station':
-        return ['B1','B2','B3','B4', 'B5', 'B6', 'B7', 'B2.B1','B3.B1','B4.B1',
-                 'B5.B1', 'B7.B1', 'B3.B2', 'B4.B2', 'B5.B2', 'B7.B2', 'B4.B3', 
-                 'B5.B3','B7.B3','B5.B4', 'B7.B4', 'B7.B5', 'B1.2', 'B2.2', 'B3.2', 
-                 'B4.2', 'B5.2', 'B7.2', 'station_nm'] # Add station name as dummy regression variable
+    if name == 'raw_bands':
+        return  ['B1','B2','B3','B4', 'B5', 'B6', 'B7','B8','B8A', 'B9', 'B11','B12']
+    elif name == 'full_bands':
+        return  ['B1','B2','B3','B4', 'B5', 'B6', 'B7','B8','B8A', 'B9', 'B11', 
+                 'B12','B2.B1','B3.B1','B4.B1','B1.2','B2.2','B3.2','B4.2',
+                 'B5.2','B6.2','B7.2','B8.2','B8A.2','B9.2','B11.2','B12.2',
+                 'B2.B1','B3.B1','B4.B1','B5.B1','B6.B1','B7.B1','B8.B1',
+                 'B8A.B1','B9.B1','B11.B1','B12.B1','B3.B2','B4.B2','B5.B2',
+                 'B6.B2','B7.B2','B8.B2','B8A.B2','B9.B2','B11.B2','B12.B2',
+                 'B4.B3','B5.B3','B6.B3','B7.B3','B8.B3','B8A.B3','B9.B3',
+                 'B11.B3','B12.B3','B5.B4','B6.B4','B7.B4','B8.B4','B8A.B4',
+                 'B9.B4','B11.B4','B12.B4','B6.B5','B7.B5','B8.B5','B8A.B5',
+                 'B9.B5','B11.B5','B12.B5','B7.B6','B8.B6','B8A.B6','B9.B6',
+                 'B11.B6','B12.B6','B8.B7','B8A.B7','B9.B7','B11.B7','B12.B7',	
+                 'B8A.B8','B9.B8','B11.B8','B12.B8','B9.B8A','B11.B8A',
+                 'B12.B8A','B11.B9','B12.B9','B12.B11']
+
+    # elif name == 'station':
+    #     return ['B1','B2','B3','B4', 'B5', 'B6', 'B7', 'B2.B1','B3.B1','B4.B1',
+    #              'B5.B1', 'B7.B1', 'B3.B2', 'B4.B2', 'B5.B2', 'B7.B2', 'B4.B3', 
+    #              'B5.B3','B7.B3','B5.B4', 'B7.B4', 'B7.B5', 'B1.2', 'B2.2', 'B3.2', 
+    #              'B4.2', 'B5.2', 'B7.2', 'station_nm'] # Add station name as dummy regression variable
+    
 
 def standardize(csv_path, reg_vars, mode):
     try:
@@ -80,33 +91,41 @@ def standardize(csv_path, reg_vars, mode):
         num_clust = max(df['cluster'])+1
     except:
         num_clust = None
-    # Remove infinite ssc values (set to 0)
-    ssc[np.isnan(ssc)] = 0
-    data[np.isnan(ssc)] = 0
-    # Remove nan ssc values (set to 0)
-    ssc[~np.isfinite(ssc)] = 0
-    data[~np.isfinite(ssc)] = 0
+    # Set nan values to 0 and +inf and -inf to large and small #'s
+    ssc = np.nan_to_num(ssc, nan=0.0)
+    data = np.nan_to_num(data, nan=0.0, posinf=10**6)
     if mode == 'train':
         # Standardize data
         scaler = preprocessing.RobustScaler() # JUSTIFY ROBUST SCALER
         data_std = scaler.fit_transform(data)
-        dump(scaler, open('algs\\scaler.pkl', 'wb'))
+        dump(scaler, open('algs\\data_scaler.pkl', 'wb'))
     elif mode == 'evaluate' or mode == 'infer':
-        scaler = load(open('algs\\scaler.pkl', 'rb'))
+        scaler = load(open('algs\\data_scaler.pkl', 'rb'))
         data_std = scaler.transform(data)
     return data_std, ssc, pred_ssc, scaler, num_clust
 
+# def standardize_ssc(ssc, mode):
+#     if mode == 'train':
+#         # Standardize data
+#         scaler = preprocessing.RobustScaler() # JUSTIFY ROBUST SCALER
+#         ssc_std = scaler.fit_transform(ssc.reshape(-1,1))
+#         dump(scaler, open('algs\\ssc_scaler.pkl', 'wb'))
+#     elif mode == 'evaluate' or mode == 'infer':
+#         scaler = load(open('algs\\ssc_scaler.pkl', 'rb'))
+#         ssc_std = scaler.transform(ssc.reshape(-1,1))
+#     return ssc_std
+
 def false_color_clust(centers, reg_vars, cluster_type):
     # Need to scale inputs into 0-255 range so need to know maximum sensor value
-    max_val = 1000 # FIX, dependent on sensor
+    max_val = 2000 # FIX, dependent on sensor
     # Get indexes of RGB in reg vars
-    r = reg_vars.index('B3') 
-    g = reg_vars.index('B2') 
-    b = reg_vars.index('B1')
+    r = reg_vars.index('B4') 
+    g = reg_vars.index('B3') 
+    b = reg_vars.index('B2')
     # Get number of clusters
     num_clust = np.shape(centers)[0]
     # Make plots
-    Cols = 3
+    Cols = 4
     # Compute Rows required
     Rows = num_clust // Cols 
     Rows += num_clust % Cols
@@ -134,17 +153,18 @@ def get_cluster(cluster_type, num_clust = None):
         if cluster_type == 'kMeans':
             return cl.KMeans(n_clusters=num_clust, n_init=1, verbose=0, random_state=0)
 
-def load_cluster(cluster_type):
-    file = glob.glob('algs\\'+cluster_type+'*.pkl')[0]
+def load_cluster(cluster_type, reg_names):
+    file = glob.glob('algs\\'+cluster_type+'_'+reg_names+'.pkl')[0]
+    print(file)
     try:
         return load(open(file, 'rb'))
     except:
         print('!!! No Cluster Algorithm Found !!!')
 
-def cluster(data, cluster_type, csv_path, mode, scaler):
+def cluster(data, cluster_type, csv_path, mode, scaler, reg_vars, reg_names):
     if mode == 'train':
         cluster = get_cluster(cluster_type)
-        visualizer = KElbowVisualizer(cluster, k=(1,10))
+        visualizer = KElbowVisualizer(cluster, k=(2,10))
         
         # Fit data and create elbow graph
         visualizer.fit(data)
@@ -156,7 +176,7 @@ def cluster(data, cluster_type, csv_path, mode, scaler):
         cluster = get_cluster(cluster_type, num_clust = k_optim)
         cluster.fit(data)
         # Once cluster is trained: save it
-        dump(cluster, open('algs\\kmeans_'+str(k_optim)+'.pkl', 'wb'))
+        dump(cluster, open('algs\\'+cluster_type+'_'+reg_names+'.pkl', 'wb'))
         # Save cluster information
         clust_info = {
             'clusters' : k_optim,
@@ -167,55 +187,65 @@ def cluster(data, cluster_type, csv_path, mode, scaler):
             }
         clust_info = {**cluster.get_params(), **clust_info}
         # Output clustering info to json file
-        with open('clusters\\'+cluster_type+'_info.json', 'w') as file:
+        with open('clusters\\'+cluster_type+'_'+reg_names+'_info.json', 'w') as file:
             file.write(json.dumps(clust_info))
         # Output pretty print data to txt for readability (not loading data)
-        with open('clusters\\pprint_'+cluster_type+'_info.txt', 'w') as file:
-                file.write(json.dumps(clust_info, indent=4, sort_keys=True))
+        with open('clusters\\pprint_'+cluster_type+'_'+reg_names+'_info.txt', 'w') as file:
+            file.write(json.dumps(clust_info, indent=4, sort_keys=True))
         # Generate false color plots of clusters
-        false_color_clust(scaler.inverse_transform(cluster.cluster_centers_).astype(int), reg_vars, cluster_type)
+        false_color_clust(scaler.inverse_transform(cluster.cluster_centers_), reg_vars, cluster_type)
     elif mode == 'infer':
         # Need to implement
-        cluster = load_cluster(cluster_type)
+        cluster = load_cluster(cluster_type, reg_names)
         # Save data (append to non-standardized data)
         df = pd.read_csv(csv_path)
         labels = cluster.predict(data)
+        # Create Histogram
+        fig, ax = plt.subplots()
+        ax.hist(labels, bins=max(labels)+1, density=True, histtype='bar', ec='black')
+        ax.locator_params(axis='x', integer=True)
+        ax.set_xlabel('Cluster')
+        ax.set_ylabel('Probability')
+        plt.title('Cluster Distribution')
+        plt.savefig('figures\\'+cluster_type+'_cluster_distribution.pdf')
+        
         df['cluster'] = labels
-        cluster_file = 'clusters\\clustered_' +cluster_type+'.csv' 
+        cluster_file = 'clusters\\clustered_' +cluster_type+'_'+reg_names+'.csv' 
         df.to_csv(cluster_file, index=False)
         
 def get_reg(reg_type):
     if reg_type == 'linear':
         return LinearRegression()
     if reg_type == 'lasso':
-        return Lasso(max_iter=10**5)
+        return Lasso(max_iter=10**5, alpha=14.0, selection='random')
     if reg_type == 'ridge':
-        return Ridge(max_iter=10**5)
+        return Ridge(max_iter=10**5,)
     if reg_type == 'elasticNet':
-        return ElasticNet(max_iter=10**5, random_state=0)
+        return ElasticNet(max_iter=10**5, random_state=0, alpha=14.0)
 
-def load_reg(reg_type):
+def load_reg(reg_type, reg_names):
     algs = []
     # Ensure first value in list is first cluster
-    regression_algs = sorted(glob.glob('regression\\'+reg_type+'\\*.pkl'))
+    regression_algs = sorted(glob.glob('regression\\'+reg_type+'_'+reg_names+'\\*.pkl'))
     for reg_alg in regression_algs:
         algs.append(load(open(reg_alg, 'rb')))
     return algs
 
-def regress(data, ssc, num_clust, reg_type, csv_path, mode, scaler, holdout):
+def regress(data, ssc, num_clust, reg_type, csv_path, mode, scaler, holdout, reg_vars, reg_names):
     # Assumes data already has clusters, implement automatically setting the
     if num_clust == None:
         print('NEED TO IMPLEMENT CLUSTERING FOR REGRESSION')
-    # Create dictionary to store metrics
-    reg_info = {'reg_vars' : reg_vars,
-                'holdout_frac' : holdout}
-    reg_folder = 'regression\\'+reg_type+'\\'
-    if not os.path.exists(reg_folder):
-        os.makedirs(reg_folder)
     # Get cluster rows
     df = pd.read_csv(csv_path)
     clusters = df['cluster'].to_numpy()
     if mode == 'train':
+        # Create dictionary to store metrics
+        reg_info = {'reg_vars' : reg_names,
+                    'holdout_frac' : holdout}
+        reg_folder = 'regression\\'+reg_type+'_'+reg_names+'\\'
+        if not os.path.exists(reg_folder):
+            os.makedirs(reg_folder)
+            
         assert len(data) == len(ssc) and len(ssc) == len(clusters)
         num_samples = len(data) # rows x cols
         num_holdout = int(holdout * num_samples)
@@ -228,9 +258,15 @@ def regress(data, ssc, num_clust, reg_type, csv_path, mode, scaler, holdout):
         data = np.delete(data, obj=random_rows, axis=0)
         ssc = np.delete(ssc, obj=random_rows, axis=0)
         clusters = np.delete(clusters, obj=random_rows, axis=0)
+        # Standardize data
+        # ssc = standardize_ssc(ssc, 'train')
+        # ssc = np.squeeze(ssc)
+        # ssc_holdout = standardize_ssc(ssc_holdout, 'infer')
+        # ssc_holdout = np.squeeze(ssc_holdout)
         
         assert len(data_holdout) == len(ssc_holdout) and len(ssc_holdout) == len(clusters_holdout)
         
+        R2_scores = []
         for clust in range(num_clust):
             c = str(clust)
             # Extract data for clusters
@@ -250,8 +286,12 @@ def regress(data, ssc, num_clust, reg_type, csv_path, mode, scaler, holdout):
             reg_info[c+'_validation_samples'] = len(metric_ssc)
             reg_info[c+'_training_frac'] = len(ssc_clust) / (len(ssc_clust) + len(metric_ssc))
             reg_info[c+'_R2'] = reg.score(metric_data, metric_ssc)
-            reg_info[c+'_coefficients'] = reg.coef_.tolist()
+            R2_scores.append(reg.score(metric_data, metric_ssc))
+            # Undo normalization for coefficients
+            reg_info[c+'_coefficients_unormalized'] = (reg.coef_ / scaler.scale_ ).tolist()
             reg_info[c+'_intercept'] = reg.intercept_
+        # Get average R2 score
+        reg_info['unweighted_R2'] = R2_scores
         # Output regression info to json file
         with open(reg_folder+'info.json', 'w') as file:
             file.write(json.dumps(reg_info))
@@ -264,8 +304,10 @@ def regress(data, ssc, num_clust, reg_type, csv_path, mode, scaler, holdout):
         # reg_file = 'regression\\reg_' +reg_type+'.csv' 
         # df.to_csv(reg_file, index=False)
     elif mode == 'infer':
+        # ssc = standardize_ssc(ssc, 'infer')
+        # ssc = np.squeeze(ssc)
         # Get regression algorithms for each cluster
-        regression_algs = load_reg(reg_type)
+        regression_algs = load_reg(reg_type, reg_names)
         # Create dummy variable to store predicted SSC
         pred_ssc = []
         # Get cluster rows
@@ -306,7 +348,7 @@ def kde2D(x, y, bandwidth, xbins=100j, ybins=100j, **kwargs):
 
 def evaluate(ssc, pred_ssc, num_clust, csv_path):
     assert np.shape(ssc) == np.shape(pred_ssc), "Number of predicted ssc measurements not equal to number of in-situ measurements"
-    # Ensure int ssc measurementes (no 10**-3 artifacts and such)
+    # Ensure int ssc measurementes (no small decimal artifacts)
     ssc = ssc.astype(int)
     pred_ssc = pred_ssc.astype(int)
     # Extract csv basename
@@ -339,20 +381,17 @@ def evaluate(ssc, pred_ssc, num_clust, csv_path):
     plt.savefig('figures\\'+csv_name+'_correlation.pdf')
     
     # Density plot -- NEED TO IMPLEMENT
-    # m1 = np.random.normal(size=1000)
-    # m2 = np.random.normal(scale=0.5, size=1000)
+    # # m1 = np.random.normal(size=1000)
+    # # m2 = np.random.normal(scale=0.5, size=1000)
     # fig, ax = plt.subplots()
     # xx, yy, zz = kde2D(ssc, pred_ssc, 1.0)
     # #ax = fig.add_subplot(1, 1, 1, projection='scatter_density')
     # ax.grid(False)
-    # #plt.xscale('log')
-    # #plt.yscale('log')
+    # plt.xscale('log')
+    # plt.yscale('log')
     # ax.pcolormesh(xx, yy, zz)
     # ax.scatter(ssc, pred_ssc, s=2)
     # plt.show()
-    
-
-        
 
 if __name__ == "__main__":
     """
@@ -365,7 +404,7 @@ if __name__ == "__main__":
     parser.add_argument("--csv", type=str, help="path to CSV to import")
     parser.add_argument("--cluster_type", choices=("kMeans"), type=str, help="clustering algorithm")
     parser.add_argument("--reg_type", choices=("linear","lasso","ridge","elasticNet"), type=str, help="regression algorithm")
-    parser.add_argument("--reg_vars", choices=('raw bands', 'station'), type=str, help='variables to regress')
+    parser.add_argument("--reg_vars", choices=('raw_bands', 'full_bands'), type=str, help='variables to regress')
     parser.add_argument("--holdout", type=float, help='holdout percentage for validation set')
     args = parser.parse_args()
     
@@ -392,12 +431,13 @@ if __name__ == "__main__":
     args = Namespace(
         task = 'evaluate',
         mode='infer',
-        #csv="D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\tmp_vars\\ex_landsat.csv",
-        #csv ="D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python\\clusters\\clustered_kMeans.csv",
-        csv = "D:\\valencig\\Thesis\sentinel-ssc\\sentinel-calibration\\python\\regression\\reg_ridge.csv",
-        #reg_type = "ridge",
-        reg_vars = 'raw bands',
-        #holdout = None
+        # csv = "D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\exports\\GEE_raw\\ssc_harmonized.csv",
+        # csv="D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python\\clusters\\clustered_kMeans_raw_bands.csv",
+        csv = "D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python\\regression\\reg_elasticNet.csv",
+        # cluster_type = "kMeans",
+        # reg_type  = "linear",
+        reg_vars = 'full_bands'
+        # holdout = 0.3
         )
     
     # Extract regression variables
@@ -406,9 +446,9 @@ if __name__ == "__main__":
     data, ssc, pred_ssc, scaler, num_clust = standardize(args.csv, reg_vars, args.mode)
     
     if args.task == "cluster":
-        cluster(data=data, cluster_type=args.cluster_type, csv_path=args.csv, mode=args.mode, scaler=scaler)
+        cluster(data=data, cluster_type=args.cluster_type, csv_path=args.csv, mode=args.mode, scaler=scaler, reg_vars=reg_vars, reg_names=args.reg_vars)
     elif args.task == "regression":
-        regress(data=data, ssc=ssc, num_clust=num_clust, reg_type=args.reg_type, csv_path=args.csv, mode=args.mode, scaler=scaler, holdout=args.holdout)
+        regress(data=data, ssc=ssc, num_clust=num_clust, reg_type=args.reg_type, csv_path=args.csv, mode=args.mode, scaler=scaler, holdout=args.holdout, reg_vars=reg_vars, reg_names=args.reg_vars)
     elif args.task == "evaluate":
         evaluate(ssc=ssc, pred_ssc=pred_ssc, num_clust=num_clust, csv_path=args.csv)
     else:
