@@ -135,7 +135,6 @@ us_states_spatial <- us_states_spatial[,c('name')] # only select column with pro
 # fortify state shapefile
 us_ca <- fortify(us_states_spatial)
 
-#### --- ####
 #### IMPORT AND CLEAN -- LANDSAT DATA ####
 set.seed(1)
 
@@ -249,107 +248,111 @@ wd_extent<- paste0(wd_exports, 'station_transects/')
 if(!dir.exists(wd_extent)){
   dir.create(wd_extent)}
 cat('\t','-> Saving them to:', wd_extent,'\n')
-# Save points as shape file
+
+# Save station points as shape file
 station_points <- data.frame(station=wqp_info$site_no, lat=as.numeric(wqp_info$lat), lon=as.numeric(wqp_info$lon))
 station_points <- SpatialPointsDataFrame(coords = station_points[,c('lon','lat')], 
                                          data=station_points,
                                          proj4string = projection)
-st_write(st_as_sf(station_points), paste0(wd_extent,'station_points_updated.shp'), quiet=TRUE, append=FALSE)
+st_write(st_as_sf(station_points), paste0(wd_extent,'station_points.shp'), quiet=TRUE, append=FALSE)
 
 # To test querying sentinel data at varying distances from stations
-station_distances <- c(2, 5, 8, 10, 15, 20)
-# station_distances <- c(5)
-# Save first station extent from each distance to make comparison plot
-distance_transects <- data.frame(row.names = c('station','geometry'))
-# Loop over all distances from station
-for (dist in station_distances) {
-  cat('\t','-> Getting transects', dist,'km up/downstream from stations\n')
-  # To save station name and assosiated NLDI extent
-  transects_df <- data.frame(row.names = c('station','geometry'))
-  # Progress bar
-  pb <- txtProgressBar(0, nrow(bare_station), style = 3)
-    # Loop over all unique stations
-    for (row in 1:nrow(bare_station)){
-      print(row)
-      setTxtProgressBar(pb, row)
-      # Extract lat and lon from dataframe of unique station data
-      lon1 <- as.numeric(bare_station[row, "lon"][[1]])
-      lat1 <- as.numeric(bare_station[row, "lat"][[1]])
-      station_num <- usgs_insitu_raw[which(usgs_insitu_raw$lon==lon1 & usgs_insitu_raw$lat==lat1),]$site_no[1]
-      # Get NLDI stream extent up and down main channel
-      tryCatch({
-        extent <- findNLDI(wqp = station_num,
-                           nav = c('UM', 'DM'),
-                           distance_km = dist)
-        # Combine upper and lower main channel
-        merged_extent <- st_join(extent$UM_flowlines, extent$DM_flowlines)
-        },
-      error = function(e) {
-        # Some sites don't have NLDI extents so just store location of station
-        merged_extent <- findNLDI(wqp = station_num)
-      })
-      # Combine line extents into one, apply label of station
-      reduce_extent <- data.frame(station = station_num, st_combine(merged_extent$geometry))
-      transects_df <- rbind(transects_df, reduce_extent)
-      if (row == nrow(bare_station)){
-        distance_transects <- rbind(distance_transects, reduce_extent)
-      }
-    }
-  close(pb)
-  # Create sf object from dataframe holding station nums and geometry
-  transects_sf <- st_as_sf(transects_df)
-  # Save transects as one shapefile --> NEED TO FIX
-  st_write(transects_sf, paste0(wd_extent,'transects_',dist,'km.shp'), quiet=TRUE, append=FALSE)
-}
-ggplot() + geom_sf(data=foo$DD_flowlines)
+# station_distances <- c(2, 5, 8, 10, 15, 20)
+# station_distances <- c(2)
+# # Save first station extent from each distance to make comparison plot
+# distance_transects <- data.frame(row.names = c('station','geometry'))
+# # Loop over all distances from station
+# for (dist in station_distances) {
+#   cat('\t','-> Getting transects', dist,'km up/downstream from stations\n')
+#   # To save station name and assosiated NLDI extent
+#   transects_df <- data.frame(row.names = c('station','geometry'))
+#   # Progress bar
+#   pb <- txtProgressBar(0, nrow(bare_station), style = 3)
+#     # Loop over all unique stations
+#     for (row in 1:nrow(bare_station)){
+#       # print(row)
+#       setTxtProgressBar(pb, row)
+#       # Extract lat and lon from dataframe of unique station data
+#       lon1 <- as.numeric(bare_station[row, "lon"][[1]])
+#       lat1 <- as.numeric(bare_station[row, "lat"][[1]])
+#       station_num <- usgs_insitu_raw[which(usgs_insitu_raw$lon==lon1 & usgs_insitu_raw$lat==lat1),]$site_no[1]
+#       # Get NLDI stream extent up and down main channel
+#       tryCatch({
+#         extent <- findNLDI(wqp = station_num,
+#                            nav = c('UM', 'DM'),
+#                            distance_km = dist)
+#         # Combine upper and lower main channel
+#         merged_extent <- st_join(extent$UM_flowlines, extent$DM_flowlines)
+#         reduce_extent <- data.frame(station = station_num, st_combine(merged_extent$geometry))
+#         },
+#       error = function(e) {
+#         # Some sites don't have NLDI extents so just store location of station
+#         # merged_extent <- findNLDI(wqp = station_num)
+#         station_point <- st_sfc(st_point(c(lon1, lat1)))
+#         st_crs(station_point) <- projection
+#         reduce_extent <- data.frame(station = station_num, station_point)
+#       })
+#       # Combine line extents into one, apply label of station
+#       transects_df <- rbind(transects_df, reduce_extent)
+#       # if (row == nrow(bare_station)){
+#       #   distance_transects <- rbind(distance_transects, reduce_extent)
+#       # }
+#     }
+#   close(pb)
+#   # Create sf object from dataframe holding station nums and geometry
+#   transects_sf <- st_as_sf(transects_df)
+#   # Save transects as one shapefile --> NEED TO FIX
+#   st_write(transects_sf, paste0(wd_extent,'transects_',dist,'km.shp'), quiet=TRUE, append=FALSE)
+# }
+
 # Make comparison plot 
 # theme to remove tick marks and axes labels
-tick_theme <- theme_bw() + theme(axis.text.x=element_blank(),
-                      axis.ticks.x=element_blank(),
-                      axis.text.y=element_blank(),
-                      axis.ticks.y=element_blank())
-p1 <- ggplot() + 
-  geom_sf(data = distance_transects[1,],
-          aes(geometry = geometry),
-          color = 'red') +
-  tick_theme +
-  labs(title = '2 km') 
-p2 <- ggplot() + 
-  geom_sf(data = distance_transects[2,],
-          aes(geometry = geometry),
-          color = 'red') +
-  tick_theme +
-  labs(title = '5 km')
-p3 <- ggplot() + 
-  geom_sf(data = distance_transects[3,],
-          aes(geometry = geometry),
-          color = 'red') +
-  tick_theme +
-  labs(title = '8 km')
-p4 <- ggplot() + 
-  geom_sf(data = distance_transects[4,],
-          aes(geometry = geometry),
-          color = 'red') +
-  tick_theme +
-  labs(title = '10 km')
-p5 <- ggplot() + 
-  geom_sf(data = distance_transects[5,],
-          aes(geometry = geometry),
-          color = 'red') +
-  tick_theme +
-  labs(title = '15 km')
-p6 <- ggplot() + 
-  geom_sf(data = distance_transects[6,],
-          aes(geometry = geometry),
-          color = 'red') +
-  tick_theme +
-  labs(title = '20 km')
-
-distance_plot <- grid.arrange(p1, p2, p3, p4, p5, p6, 
-                              top=textGrob("River Transect Lengths", gp=gpar(fontsize=20,font=3)),
-                              ncol=3)
-ggsave(distance_plot, filename = paste0(wd_figures, 'transect_lengths.pdf'),
-       width = 10, height = 8)
+# tick_theme <- theme_bw() + theme(axis.text.x=element_blank(),
+#                       axis.ticks.x=element_blank(),
+#                       axis.text.y=element_blank(),
+#                       axis.ticks.y=element_blank())
+# p1 <- ggplot() + 
+#   geom_sf(data = distance_transects[1,],
+#           aes(geometry = geometry),
+#           color = 'red') +
+#   tick_theme +
+#   labs(title = '2 km') 
+# p2 <- ggplot() + 
+#   geom_sf(data = distance_transects[2,],
+#           aes(geometry = geometry),
+#           color = 'red') +
+#   tick_theme +
+#   labs(title = '5 km')
+# p3 <- ggplot() + 
+#   geom_sf(data = distance_transects[3,],
+#           aes(geometry = geometry),
+#           color = 'red') +
+#   tick_theme +
+#   labs(title = '8 km')
+# p4 <- ggplot() + 
+#   geom_sf(data = distance_transects[4,],
+#           aes(geometry = geometry),
+#           color = 'red') +
+#   tick_theme +
+#   labs(title = '10 km')
+# p5 <- ggplot() + 
+#   geom_sf(data = distance_transects[5,],
+#           aes(geometry = geometry),
+#           color = 'red') +
+#   tick_theme +
+#   labs(title = '15 km')
+# p6 <- ggplot() + 
+#   geom_sf(data = distance_transects[6,],
+#           aes(geometry = geometry),
+#           color = 'red') +
+#   tick_theme +
+#   labs(title = '20 km')
+# 
+# distance_plot <- grid.arrange(p1, p2, p3, p4, p5, p6, 
+#                               top=textGrob("River Transect Lengths", gp=gpar(fontsize=20,font=3)),
+#                               ncol=3)
+# ggsave(distance_plot, filename = paste0(wd_figures, 'transect_lengths.pdf'),
+#        width = 10, height = 8)
 
 ### Clustering ###
 # print('RUNNING CLUSTERING ALGORITHMS')
@@ -363,7 +366,8 @@ ggsave(distance_plot, filename = paste0(wd_figures, 'transect_lengths.pdf'),
 # system('python -c print(hello world)')
 
 ### IMPORT AND HARMONIZE SENTINEL DATA ###
-lag_days <- 2
+lag_days <- 4
+lag_days_examine <- c(1,2,3,4,5,6,7,8,9,10)
 wd_gee <- paste0(wd_exports,'GEE_raw/')
 gee_files <- list.files(path = wd_gee, pattern = '*.csv', full.names = TRUE)
 gee_data <- data.table()
@@ -386,7 +390,33 @@ for (file in gee_files){
                    'B12_median'), new = c('B1','B2','B3','B4','B5','B6','B7','B8','B8A','B9','B11','B12'))
   gee_data <- rbind(gee_data, setDT(gee_clean))
 }
-usgs_sentinel_harmonzied <- setDT(gee_clean)[
+
+num_samples <- data.frame(lag_days_examine, rep(NA, length(lag_days_examine)))
+names(num_samples) <- c('Lag_days','Num_samples')
+for (row in 1:nrow(num_samples)){
+  day <- num_samples[row,]$Lag_days
+  cleaned <- setDT(gee_data)[
+    # Create lead lag times and add to DF
+    ,':='(match_dt_start = date - day,
+          match_dt_end = date + day)][
+            # Match by dates inside lead-lag range
+            usgs_insitu_raw[,':='(match_dt = as.Date(usgs_insitu_raw$sample_dt))],
+            on = .(station == site_no, match_dt_start <= match_dt, match_dt_end >= match_dt)][
+              ,lag_days := as.numeric(difftime(sample_dt, date),'days')][# Remove rows without images
+                !is.na(B1)
+              ]
+  num_samples[row, 'Num_samples'] <- nrow(cleaned)
+}
+
+lag_day_plot <- ggplot(num_samples, aes(x = Lag_days, y = Num_samples, fill = Lag_days)) + 
+  theme_bw() +
+  geom_bar(stat="identity") +
+  labs(title = 'Number of Viable Samples vs. Lag days')
+
+ggsave(lag_day_plot, filename = paste0(wd_figures, 'lag_day_plot.pdf'),
+       width = 8, height = 10)
+
+usgs_sentinel_harmonzied <- setDT(gee_data)[
   # Create lead lag times and add to DF
   ,':='(match_dt_start = date - lag_days,
         match_dt_end = date + lag_days)][
@@ -489,4 +519,4 @@ usgs_sentinel_harmonzied <- setDT(gee_clean)[
                       )][# Remove rows without images
                         !is.na(B1)
                         ]
-
+write.csv(usgs_sentinel_harmonzied, paste0(wd_gee, 'ssc_harmonized.csv'), row.names = FALSE)
