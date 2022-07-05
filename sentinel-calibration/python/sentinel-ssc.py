@@ -11,6 +11,7 @@ import pandas as pd
 import numpy as np
 import os
 from pathlib import Path
+import math
 
 import matplotlib.pyplot as plt
 # from matplotlib.colors import Normalize
@@ -36,7 +37,7 @@ from argparse import Namespace
 
 ### TO DO/ISSUES
 # - Add tag to specify regression variables
-# - Standardize ssc
+# - Log10 in relative errror plot
 # - https://stackoverflow.com/questions/31029340/how-to-adjust-scaled-scikit-learn-logicistic-regression-coeffs-to-score-a-non-sc
 # - Cluster args hardcoded in
 # - Make code pretty with docs and tqdm
@@ -329,22 +330,27 @@ def regress(data, ssc, num_clust, reg_type, csv_path, mode, scaler, holdout, reg
         df.to_csv(reg_file, index=False)
         
 
-def kde2D(x, y, bandwidth, xbins=100j, ybins=100j, **kwargs): 
-    """Build 2D kernel density estimate (KDE)."""
+# def kde2D(x, y, bandwidth, xbins=100j, ybins=100j, **kwargs): 
+#     """Build 2D kernel density estimate (KDE)."""
 
-    # create grid of sample locations (default: 100x100)
-    xx, yy = np.mgrid[x.min():x.max():xbins, 
-                      y.min():y.max():ybins]
+#     # create grid of sample locations (default: 100x100)
+#     xx, yy = np.mgrid[x.min():x.max():xbins, 
+#                       y.min():y.max():ybins]
 
-    xy_sample = np.vstack([yy.ravel(), xx.ravel()]).T
-    xy_train  = np.vstack([y, x]).T
+#     xy_sample = np.vstack([yy.ravel(), xx.ravel()]).T
+#     xy_train  = np.vstack([y, x]).T
 
-    kde_skl = KernelDensity(bandwidth=bandwidth, **kwargs)
-    kde_skl.fit(xy_train)
+#     kde_skl = KernelDensity(bandwidth=bandwidth, **kwargs)
+#     kde_skl.fit(xy_train)
 
-    # score_samples() returns the log-likelihood of the samples
-    z = np.exp(kde_skl.score_samples(xy_sample))
-    return xx, yy, np.reshape(z, xx.shape)
+#     # score_samples() returns the log-likelihood of the samples
+#     z = np.exp(kde_skl.score_samples(xy_sample))
+#     return xx, yy, np.reshape(z, xx.shape)\
+def relative_error_fxn(row):
+    if row[0] != 0 and row[1] != 0:
+        return math.log10(abs(row[1])/abs(row[0]))
+    else:
+        return 0 
 
 def evaluate(ssc, pred_ssc, num_clust, csv_path):
     assert np.shape(ssc) == np.shape(pred_ssc), "Number of predicted ssc measurements not equal to number of in-situ measurements"
@@ -354,17 +360,11 @@ def evaluate(ssc, pred_ssc, num_clust, csv_path):
     # Extract csv basename
     csv_name = Path(csv_path).stem
     
-    # # Set bounds to remove outliers
-    # max_ssc = np.inf
-    # # Filter by in-situ ssc
-    # rows = ssc < max_ssc
-    # ssc = ssc[rows]
-    # pred_ssc = pred_ssc[rows]
-    # # Filter by predicted ssc
-    # rows = pred_ssc < max_ssc
-    # ssc = ssc[rows]
-    # pred_ssc = pred_ssc[rows]
-    
+    # Determin relative rror
+    combined = np.concatenate([ssc.reshape(-1,1), pred_ssc.reshape(-1,1)], axis=1)
+    log_arr = np.apply_along_axis(relative_error_fxn, -1, combined)
+    relative_error = 10**(np.median(log_arr))-1
+        
     # Normal 1:1 plot
     fig, ax = plt.subplots()
     ax.scatter(ssc, pred_ssc, color='black', alpha = 0.05)
@@ -373,10 +373,12 @@ def evaluate(ssc, pred_ssc, num_clust, csv_path):
     lims = [np.min([ax.get_xlim(), ax.get_ylim()]), np.max([ax.get_xlim(), ax.get_ylim()])]
     ax.set_xlim(lims)
     ax.set_ylim(lims)
+    ax.grid(False)
     lims = [0, np.max([ax.get_xlim(), ax.get_ylim()])]
     ax.plot(lims, lims, '--', color='red')
     plt.xlabel('in situ SSC (mg/L)')
     plt.ylabel('Satellite-estimated SSC (mg/L)')
+    plt.figtext(0.2, 0.9, 'Relative error = '+str(round(relative_error, 3)), ha='center', va='center',transform=ax.transAxes)
     plt.title(csv_name+' SSC Correlation')
     plt.savefig('figures\\'+csv_name+'_correlation.pdf')
     
@@ -433,7 +435,7 @@ if __name__ == "__main__":
         mode='infer',
         # csv = "D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\exports\\GEE_raw\\ssc_harmonized.csv",
         # csv="D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python\\clusters\\clustered_kMeans_raw_bands.csv",
-        csv = "D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python\\regression\\reg_elasticNet.csv",
+        csv = "D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python\\regression\\reg_ridge.csv",
         # cluster_type = "kMeans",
         # reg_type  = "linear",
         reg_vars = 'full_bands'
