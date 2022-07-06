@@ -15,7 +15,7 @@ import math
 
 import matplotlib.pyplot as plt
 from matplotlib import patches
-from matplotlib import colors
+# from matplotlib import colors
 # from matplotlib.colors import Normalize
 # from scipy.stats import gaussian_kde
 # import mpl_scatter_density
@@ -38,14 +38,10 @@ import glob
 from argparse import Namespace
 
 ### TO DO/ISSUES
-# - Add tag to specify regression variables
 # - Log10 in relative errror plot
-# - https://stackoverflow.com/questions/31029340/how-to-adjust-scaled-scikit-learn-logicistic-regression-coeffs-to-score-a-non-sc
-# - Cluster args hardcoded in
 # - Make code pretty with docs and tqdm
 # - Determine max value of sensor 
 # - Implement other clustering
-# - Clustering and regression save to different folders
 
 def get_regressors(name):
     if name == 'raw_bands':
@@ -179,9 +175,13 @@ def get_cluster(cluster_type, num_clust = None):
     if num_clust == None:
         if cluster_type == 'kMeans': 
             return cl.KMeans(n_init=20, verbose=0, random_state=0)
+        # elif cluster_type == 'agglomerative':
+        #     return cl.AgglomerativeClustering()
     elif num_clust != None:
         if cluster_type == 'kMeans':
             return cl.KMeans(n_clusters=num_clust, n_init=1, verbose=0, random_state=0)
+        # elif cluster_type == 'agglomerative':
+        #     return cl.AgglomerativeClustering(n_clusters=num_clust)
 
 def load_cluster(cluster_type, reg_names):
     file = glob.glob('algs\\'+cluster_type+'_'+reg_names+'.pkl')[0]
@@ -453,10 +453,10 @@ if __name__ == "__main__":
         python sentinel-ssc cluster --mode 'train' --csv 'PATH TO CSV' --cluster_type 'cluster' --reg_vars 'raw bands' # Run clustering algorithm
     """
     parser = argparse.ArgumentParser(description="Run a clustering regression pipeline on SSC data.")
-    parser.add_argument("task", metavar="task", choices=("cluster","regression", "evaluate"), type=str, help="task of workflow")
+    parser.add_argument("--task", choices=("cluster","regression", "evaluate"), type=str, help="task of workflow")
     parser.add_argument("--mode", default="infer", choices=("train","infer"), type=str, help="workflow mode")
     parser.add_argument("--csv", type=str, help="path to CSV to import")
-    parser.add_argument("--cluster_type", choices=("kMeans"), type=str, help="clustering algorithm")
+    parser.add_argument("--cluster_type", choices=("kMeans", "NOT IMPLEMENTED"), type=str, help="clustering algorithm")
     parser.add_argument("--reg_type", choices=("linear","lasso","ridge","elasticNet"), type=str, help="regression algorithm")
     parser.add_argument("--reg_vars", choices=('raw_bands', 'full_bands'), type=str, help='variables to regress')
     parser.add_argument("--holdout", type=float, help='holdout percentage for validation set')
@@ -482,21 +482,21 @@ if __name__ == "__main__":
         if not os.path.exists(folder):
             os.makedirs(folder)
     
-    args = Namespace(
-        task = 'evaluate',
-        # mode='infer',
-        # csv = "D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\exports\\GEE_raw\\ssc_harmonized.csv",
-        # csv="D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python\\clusters\\clustered_kMeans_raw_bands.csv",
-        csv = "D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python\\regression\\reg_linear.csv",
-        # cluster_type = "kMeans",
-        reg_type  = "linear",
-        reg_vars = 'full_bands',
-        # holdout = 0.3
-        )
+    # args = Namespace(
+    #     task = 'cluster',
+    #     mode= 'train',
+    #     csv = "D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\exports\\GEE_raw\\ssc_harmonized.csv",
+    #     # csv="D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python\\clusters\\clustered_kMeans_raw_bands.csv",
+    #     # csv = "D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python\\regression\\reg_linear.csv",
+    #     cluster_type = "agglomerative",
+    #     # reg_type  = "linear",
+    #     reg_vars = 'raw_bands',
+    #     # holdout = 0.3
+    #     )
+    # Extract regression variables
+    reg_vars = get_regressors(args.reg_vars)
     
     if args.task == "cluster":
-        # Extract regression variables
-        reg_vars = get_regressors(args.reg_vars)
         # Extract and standardize data to numpy array
         data, ssc, pred_ssc, scaler, num_clust = standardize(args.csv, reg_vars)
         cluster(data=data, cluster_type=args.cluster_type, csv_path=args.csv, mode=args.mode, scaler=scaler, reg_vars=reg_vars, reg_names=args.reg_vars)
