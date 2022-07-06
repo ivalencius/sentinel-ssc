@@ -71,8 +71,7 @@ def get_regressors(name):
     #              'B5.B3','B7.B3','B5.B4', 'B7.B4', 'B7.B5', 'B1.2', 'B2.2', 'B3.2', 
     #              'B4.2', 'B5.2', 'B7.2', 'station_nm'] # Add station name as dummy regression variable
     
-
-def standardize(csv_path, reg_vars, mode):
+def data_extract(csv_path, reg_vars):
     try:
         df = pd.read_csv(csv_path)
     except Exception:
@@ -97,13 +96,41 @@ def standardize(csv_path, reg_vars, mode):
     # Set nan values to 0 and +inf and -inf to large and small #'s
     ssc = np.nan_to_num(ssc, nan=0.0)
     data = np.nan_to_num(data, nan=0.0, posinf=10**6)
-    if mode == 'train':
+    return data, ssc, pred_ssc, num_clust
+    
+def standardize(csv_path, reg_vars):
+    try:
+        df = pd.read_csv(csv_path)
+    except Exception:
+        raise ValueError("!!! Unknown CSV !!!")
+    # Extract data you wish to regress
+    data = df[reg_vars].to_numpy()
+    # Check to see if data has SSC data
+    try:
+        ssc = df['SSC_mgL'].to_numpy()
+    except:
+        ssc = None
+    # Check to see if data has pred_SSC data
+    try:
+        pred_ssc = df['pred_SSC_mgL'].to_numpy()
+    except:
+        pred_ssc = None
+    # Check to see if data is clustered
+    try:
+        num_clust = max(df['cluster'])+1
+    except:
+        num_clust = None
+    # Set nan values to 0 and +inf and -inf to large and small #'s
+    ssc = np.nan_to_num(ssc, nan=0.0)
+    data = np.nan_to_num(data, nan=0.0, posinf=10**6)
+    # Use whole dataset for cluster scaler
+    if not os.path.exists('algs\\cluster_scaler.pkl'):
         # Standardize data
         scaler = preprocessing.RobustScaler() # JUSTIFY ROBUST SCALER
         data_std = scaler.fit_transform(data)
-        dump(scaler, open('algs\\data_scaler.pkl', 'wb'))
-    elif mode == 'evaluate' or mode == 'infer':
-        scaler = load(open('algs\\data_scaler.pkl', 'rb'))
+        dump(scaler, open('algs\\cluster_scaler.pkl', 'wb'))
+    else:
+        scaler = load(open('algs\\cluster_scaler.pkl', 'rb'))
         data_std = scaler.transform(data)
     return data_std, ssc, pred_ssc, scaler, num_clust
 
@@ -234,7 +261,7 @@ def load_reg(reg_type, reg_names):
         algs.append(load(open(reg_alg, 'rb')))
     return algs
 
-def regress(data, ssc, num_clust, reg_type, csv_path, mode, scaler, holdout, reg_vars, reg_names):
+def regress(data, ssc, num_clust, reg_type, csv_path, mode, holdout, reg_vars, reg_names):
     # Assumes data already has clusters, implement automatically setting the
     if num_clust == None:
         print('NEED TO IMPLEMENT CLUSTERING FOR REGRESSION')
@@ -262,10 +289,16 @@ def regress(data, ssc, num_clust, reg_type, csv_path, mode, scaler, holdout, reg
         ssc = np.delete(ssc, obj=random_rows, axis=0)
         clusters = np.delete(clusters, obj=random_rows, axis=0)
         # Standardize data
-        # ssc = standardize_ssc(ssc, 'train')
-        # ssc = np.squeeze(ssc)
-        # ssc_holdout = standardize_ssc(ssc_holdout, 'infer')
-        # ssc_holdout = np.squeeze(ssc_holdout)
+        scaler = preprocessing.RobustScaler() # JUSTIFY ROBUST SCALER
+        # Only use training set to train scaler
+        if os.path.exists('algs\\regression_scaler.pkl'):
+            scaler = load(open('algs\\regression_scaler.pkl', 'rb'))
+            data = scaler.transform(data)
+            data_holdout = scaler.transform(data_holdout)
+        else:
+            data = scaler.fit_transform(data)
+            data_holdout = scaler.transform(data_holdout)
+            dump(scaler, open('algs\\regression_scaler.pkl', 'wb'))
         
         assert len(data_holdout) == len(ssc_holdout) and len(ssc_holdout) == len(clusters_holdout)
         
@@ -307,8 +340,9 @@ def regress(data, ssc, num_clust, reg_type, csv_path, mode, scaler, holdout, reg
         # reg_file = 'regression\\reg_' +reg_type+'.csv' 
         # df.to_csv(reg_file, index=False)
     elif mode == 'infer':
-        # ssc = standardize_ssc(ssc, 'infer')
-        # ssc = np.squeeze(ssc)
+        # Standardize Data
+        scaler = load(open('algs\\regression_scaler.pkl', 'rb'))
+        data = scaler.transform(data)
         # Get regression algorithms for each cluster
         regression_algs = load_reg(reg_type, reg_names)
         # Create dummy variable to store predicted SSC
@@ -331,23 +365,6 @@ def regress(data, ssc, num_clust, reg_type, csv_path, mode, scaler, holdout, reg
         reg_file = 'regression\\reg_' +reg_type+'.csv' 
         df.to_csv(reg_file, index=False)
         
-
-# def kde2D(x, y, bandwidth, xbins=100j, ybins=100j, **kwargs): 
-#     """Build 2D kernel density estimate (KDE)."""
-
-#     # create grid of sample locations (default: 100x100)
-#     xx, yy = np.mgrid[x.min():x.max():xbins, 
-#                       y.min():y.max():ybins]
-
-#     xy_sample = np.vstack([yy.ravel(), xx.ravel()]).T
-#     xy_train  = np.vstack([y, x]).T
-
-#     kde_skl = KernelDensity(bandwidth=bandwidth, **kwargs)
-#     kde_skl.fit(xy_train)
-
-#     # score_samples() returns the log-likelihood of the samples
-#     z = np.exp(kde_skl.score_samples(xy_sample))
-#     return xx, yy, np.reshape(z, xx.shape)\
 def relative_error_fxn(row):
     if row[0] != 0 and row[1] != 0:
         return math.log10(abs(row[1])/abs(row[0]))
@@ -429,18 +446,6 @@ def evaluate(data, ssc, pred_ssc, num_clust, csv_path, reg_vars):
     
     false_color_reg(data, pred_ssc, num_clust, csv_path, reg_vars)
     
-    # Density plot -- NEED TO IMPLEMENT
-    # # m1 = np.random.normal(size=1000)
-    # # m2 = np.random.normal(scale=0.5, size=1000)
-    # fig, ax = plt.subplots()
-    # xx, yy, zz = kde2D(ssc, pred_ssc, 1.0)
-    # #ax = fig.add_subplot(1, 1, 1, projection='scatter_density')
-    # ax.grid(False)
-    # plt.xscale('log')
-    # plt.yscale('log')
-    # ax.pcolormesh(xx, yy, zz)
-    # ax.scatter(ssc, pred_ssc, s=2)
-    # plt.show()
 
 if __name__ == "__main__":
     """
@@ -479,26 +484,29 @@ if __name__ == "__main__":
     
     args = Namespace(
         task = 'evaluate',
-        mode='infer',
+        # mode='infer',
         # csv = "D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\exports\\GEE_raw\\ssc_harmonized.csv",
         # csv="D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python\\clusters\\clustered_kMeans_raw_bands.csv",
-        csv = "D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python\\regression\\reg_ridge.csv",
+        csv = "D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python\\regression\\reg_linear.csv",
         # cluster_type = "kMeans",
-        # reg_type  = "linear",
-        reg_vars = 'full_bands'
+        reg_type  = "linear",
+        reg_vars = 'full_bands',
         # holdout = 0.3
         )
     
-    # Extract regression variables
-    reg_vars = get_regressors(args.reg_vars)
-    # Extract and standardize data to numpy array
-    data, ssc, pred_ssc, scaler, num_clust = standardize(args.csv, reg_vars, args.mode)
-    
     if args.task == "cluster":
+        # Extract regression variables
+        reg_vars = get_regressors(args.reg_vars)
+        # Extract and standardize data to numpy array
+        data, ssc, pred_ssc, scaler, num_clust = standardize(args.csv, reg_vars)
         cluster(data=data, cluster_type=args.cluster_type, csv_path=args.csv, mode=args.mode, scaler=scaler, reg_vars=reg_vars, reg_names=args.reg_vars)
     elif args.task == "regression":
-        regress(data=data, ssc=ssc, num_clust=num_clust, reg_type=args.reg_type, csv_path=args.csv, mode=args.mode, scaler=scaler, holdout=args.holdout, reg_vars=reg_vars, reg_names=args.reg_vars)
+        # Extract but don't standardize data
+        data, ssc, pred_ssc, num_clust = data_extract(args.csv, reg_vars)
+        regress(data=data, ssc=ssc, num_clust=num_clust, reg_type=args.reg_type, csv_path=args.csv, mode=args.mode, holdout=args.holdout, reg_vars=reg_vars, reg_names=args.reg_vars)
     elif args.task == "evaluate":
+        # Extract but don't standardize data
+        data, ssc, pred_ssc, num_clust = data_extract(args.csv, reg_vars)
         evaluate(data=data, ssc=ssc, pred_ssc=pred_ssc, num_clust=num_clust, csv_path=args.csv, reg_vars=reg_vars)
     else:
         raise ValueError("!!! Unknown mode !!!")
