@@ -127,9 +127,10 @@ wd_figures <- paste0(wd_exports, "figures/")
 # Sub folders
 wd_extent<- paste0(wd_exports, 'station_transects/')
 wd_gee <- paste0(wd_exports,'GEE_raw/')
+wd_rating <- paste0(wd_exports, 'rating_curves/')
 
 # Create folders within root directory to organize outputs if those folders do not exist
-export_folder_paths <- c(wd_exports, wd_figures, wd_extent, wd_gee)
+export_folder_paths <- c(wd_exports, wd_figures, wd_extent, wd_gee, wd_rating)
                          # , wd_exports_gc,wd_station_standalone, 
                          # wd_standalone_models, wd_standalone_figures, wd_autocorrelation)
 for(i in 1:length(export_folder_paths)){
@@ -190,6 +191,7 @@ usgs_insitu_raw <- data.table(readWQPdata(parameterCd = ssc_codes,
 
 # Need lat, lon, channel width
 usgs_stations <- paste0("USGS-", unique(usgs_insitu_raw$site_no))
+
 # Get properties of usgs WQP stations
 cat('\t','-> Downloading USGS Station Metadata','\n')
 wqp_info <- data.table(whatWQPsites(siteid=usgs_stations))[,":="(
@@ -252,6 +254,8 @@ discharge_data <- data.table(readNWISdata(
     sample_dt = dateTime,
     discharge_m3s = X_00060_00003 * 0.02832 # ft3/s to m3/s
     )][,.(site_no, sample_dt, discharge_m3s)]
+# Filter negative and NA discharge
+discharge_data <- discharge_data[discharge_data$discharge_m3s > 0, ]
 
 usgs_insitu_raw <- left_join(usgs_insitu_raw, discharge_data, by=c('site_no','sample_dt'))
 
@@ -261,6 +265,66 @@ usgs_insitu_raw <- usgs_insitu_raw[usgs_insitu_raw$discharge_m3s >= 0,]
 # Save and load variables for quick execution
 save(usgs_insitu_raw, file=paste0(wd_root, '/tmp_vars/usgs_insitu_raw.RData'))
 load(paste0(wd_root, '/tmp_vars/usgs_insitu_raw.RData'))
+
+### Create Rating Curve ###
+
+# Merge station info and discharge data
+discharge_ssc <- left_join(discharge_data, wqp_info, by=c('site_no'))
+discharge_ssc <- setDT(discharge_ssc)[
+  ,':='(
+    agency_cd = 'USGS',
+    log10_discharge_m3s = log10(discharge_m3s),
+    rating_log10_SSC_flux_MTyr = 0.0,
+    rating_SSC_flux_MTyr = 0.0,
+    rating_SSC_mgL = 0.0,
+    rating_log10_SSC_mgL = 0.0,
+    rating_R2 = 0.0
+    )]
+
+lm_eqn <- function(m){
+  eq <- substitute(italic(y) == a + b %.% italic(x)*","~~italic(r)^2~"="~r2, 
+                   list(a = format(unname(coef(m)[1]), digits = 2),
+                        b = format(unname(coef(m)[2]), digits = 2),
+                        r2 = format(summary(m)$r.squared, digits = 3)))
+  as.character(as.expression(eq));
+}
+
+station_nums <- unique(usgs_insitu_raw$site_no)
+pb <- txtProgressBar(0, length(station_nums), style = 3)
+for (i in 1:length(station_nums)){
+  setTxtProgressBar(pb, i)
+  # Extract data
+  station_data = setDT(usgs_insitu_raw[usgs_insitu_raw$site_no == station_nums[i],])[,":="(
+    SSC_flux_MTyr = discharge_m3s * SSC_mgL * 3.10585 * 10**-5,
+    log10_SSC_flux_MTyr = log10(discharge_m3s * SSC_mgL * 3.10585 * 10**-5),
+    log10_discharge_m3s = log10(discharge_m3s)
+  )]
+  # Generate regression
+  reg = lm(log10_SSC_flux_MTyr~log10_discharge_m3s, data=station_data)
+  # Plot regression
+  reg_plot = ggplot(station_data, aes(x = log10_discharge_m3s, y=log10_SSC_flux_MTyr)) +
+    geom_point(color='green') +
+    geom_smooth(method='lm', formula= y~x, color='black',aes(fill = 'standard error')) +
+    annotate(geom='text',label = lm_eqn(reg), parse = TRUE, x = -Inf, y = Inf, hjust = -0.2, vjust = 2) +
+    theme_bw() +
+    scale_fill_manual(values = c('gray'), name = "Metrics")  +
+    labs(title=paste0('Rating Curve for Station USGS-',station_nums[i]),
+         caption=paste0(startDate,' to present'))
+  ggsave(reg_plot, filename = paste0(wd_rating, paste0('USGS-',station_nums[i],'.pdf')),
+         width = 10, height = 8)
+  # Apply regression to discharge data
+  ssc_flux = predict.lm(reg, newdata=discharge_ssc[discharge_ssc$site_no == station_nums[i],])
+  discharge_ssc[discharge_ssc$site_no == station_nums[i],]$rating_log10_SSC_flux_MTyr <- ssc_flux
+  discharge_ssc[discharge_ssc$site_no == station_nums[i],]$rating_SSC_flux_MTyr <- 10**ssc_flux
+  discharge_ssc[discharge_ssc$site_no == station_nums[i],]$rating_SSC_mgL <- (10**ssc_flux) / (discharge_ssc[discharge_ssc$site_no == station_nums[i],]$discharge_m3s * 3.10585 * 10**-5)
+  discharge_ssc[discharge_ssc$site_no == station_nums[i],]$rating_log10_SSC_mgL <- log10((10**ssc_flux) / (discharge_ssc[discharge_ssc$site_no == station_nums[i],]$discharge_m3s * 3.10585 * 10**-5))
+  # Tack on R2 value
+  discharge_ssc[discharge_ssc$site_no == station_nums[i],]$rating_R2 <- summary(reg)$r.squared
+}
+
+# Export data
+save(usgs_insitu_raw, file=paste0(wd_root, '/tmp_vars/discharge_ssc.RData'))
+load(paste0(wd_root, '/tmp_vars/discharge_ssc.RData'))
 
 ### PLOT USGS SITE LOCATIONS###
 bare_station <- data.frame(usgs_insitu_raw$lon, usgs_insitu_raw$lat)
@@ -285,8 +349,6 @@ usgs_no_satellite_plot <- ggplot() +
 
 ggsave(usgs_no_satellite_plot, filename = paste0(wd_figures, 'usgs_stations_no_satellite.pdf'),
        width = 10, height = 8)
-
-### Create Rating Curve ###
 
 ### GET NLDI EXTENTS FROM ALL STATIONS ###
 # This code only needs to be run once, the shape files it creates are used to pull Sentinel Data from GEE
@@ -417,7 +479,7 @@ st_write(st_as_sf(station_points), paste0(wd_extent,'station_points.shp'), quiet
 ### IMPORT AND HARMONIZE SENTINEL DATA ###
 lag_days <- 4
 lag_days_examine <- c(1,2,3,4,5,6,7,8,9,10)
-gee_files <- list.files(path = wd_gee, pattern = '*.csv', full.names = TRUE)
+gee_files <- list.files(path = wd_gee, pattern = 'sentinel*', full.names = TRUE)
 gee_data <- data.table()
 for (file in gee_files){
   gee_raw <- read.csv(file)
@@ -441,15 +503,18 @@ for (file in gee_files){
 
 num_samples <- data.frame(lag_days_examine, rep(NA, length(lag_days_examine)))
 names(num_samples) <- c('Lag_days','Num_samples')
+
+# Raw usgs_data
 for (row in 1:nrow(num_samples)){
   day <- num_samples[row,]$Lag_days
   cleaned <- setDT(gee_data)[
     # Create lead lag times and add to DF
     ,':='(match_dt_start = date - day,
-          match_dt_end = date + day)][
+          match_dt_end = date + day,
+          site_no = unlist(strsplit(station, split='-'))[c(FALSE, TRUE)])][
             # Match by dates inside lead-lag range
             usgs_insitu_raw[,':='(match_dt = as.Date(usgs_insitu_raw$sample_dt))],
-            on = .(station == site_no, match_dt_start <= match_dt, match_dt_end >= match_dt)][
+            on = .(site_no == site_no, match_dt_start <= match_dt, match_dt_end >= match_dt)][
               ,lag_days := as.numeric(difftime(sample_dt, date),'days')][# Remove rows without images
                 !is.na(B1)
               ]
@@ -467,10 +532,11 @@ ggsave(lag_day_plot, filename = paste0(wd_figures, 'lag_day_plot.pdf'),
 usgs_sentinel_harmonzied <- setDT(gee_data)[
   # Create lead lag times and add to DF
   ,':='(match_dt_start = date - lag_days,
-        match_dt_end = date + lag_days)][
+        match_dt_end = date + lag_days,
+        site_no = unlist(strsplit(station, split='-'))[c(FALSE, TRUE)])][
           # Match by dates inside lead-lag range
           usgs_insitu_raw[,':='(match_dt = as.Date(usgs_insitu_raw$sample_dt))],
-          on = .(station == site_no, match_dt_start <= match_dt, match_dt_end >= match_dt)][
+          on = .(site_no == site_no, match_dt_start <= match_dt, match_dt_end >= match_dt)][
             ,lag_days := as.numeric(difftime(sample_dt, date),'days')][
               # Remove duplicated columns
               ,':='(station = NULL, match_dt_start = NULL, match_dt_end = NULL, i.lat = NULL, i.lon = NULL)
@@ -571,17 +637,168 @@ write.csv(usgs_sentinel_harmonzied, paste0(wd_gee, 'ssc_harmonized.csv'), row.na
 
 usgs_sentinel_harmonized <- read.csv(paste0(wd_gee, 'ssc_harmonized.csv'))
 
+# Discharge SSC data
+num_samples2 <- data.frame(lag_days_examine, rep(NA, length(lag_days_examine)))
+names(num_samples2) <- c('Lag_days','Num_samples')
+
+for (row in 1:nrow(num_samples)){
+  day <- num_samples2[row,]$Lag_days
+  cleaned2 = setDT(gee_data)[
+    # Create lead lag times and add to DF
+    ,':='(match_dt_start = date - day,
+          match_dt_end = date + day,
+          site_no = unlist(strsplit(station, split='-'))[c(FALSE, TRUE)])][
+            # Match by dates inside lead-lag range
+            discharge_ssc[,':='(match_dt = as.Date(discharge_ssc$sample_dt))],
+            on = .(site_no == site_no, match_dt_start <= match_dt, match_dt_end >= match_dt)][
+              ,lag_days := as.numeric(difftime(sample_dt, date),'days')][# Remove rows without images
+                !is.na(B1)
+              ]
+
+  num_samples2[row, 'Num_samples'] <- nrow(cleaned2)
+}
+
+lag_day_plot2 <- ggplot(num_samples2, aes(x = Lag_days, y = Num_samples, fill = Lag_days)) + 
+  theme_bw() +
+  geom_bar(stat="identity") +
+  labs(title = 'Number of Viable Samples vs. Lag days')
+
+ggsave(lag_day_plot2, filename = paste0(wd_figures, 'rating_lag_day_plot.pdf'),
+       width = 8, height = 10)
+
+usgs_sentinel_harmonzied2 <- setDT(gee_data)[
+  # Create lead lag times and add to DF
+  ,':='(match_dt_start = date - lag_days,
+        match_dt_end = date + lag_days),][
+          # Match by dates inside lead-lag range
+          discharge_ssc[,':='(match_dt = as.Date(discharge_ssc$sample_dt))],
+          on = .(site_no == site_no, match_dt_start <= match_dt, match_dt_end >= match_dt)][
+            ,lag_days := as.numeric(difftime(sample_dt, date),'days')][
+              # Remove duplicated columns
+              ,':='(station = NULL, match_dt_start = NULL, match_dt_end = NULL, i.lat = NULL, i.lon = NULL)
+            ][ # Add squared columns
+              ,':='(B1.2 = B1^2,
+                    B2.2 = B2^2,
+                    B3.2 = B3^2,
+                    B4.2 = B4^2,
+                    B5.2 = B5^2,
+                    B6.2 = B6^2,
+                    B7.2 = B7^2,
+                    B8.2 = B8^2,
+                    B8A.2 = B8A^2,
+                    B9.2 = B9^2,
+                    B11.2 = B11^2,
+                    B12.2 = B12^2,
+                    # Add band ratios
+                    B2.B1=B2/B1,
+                    B3.B1=B3/B1,
+                    B4.B1=B4/B1,
+                    B5.B1=B5/B1,
+                    B6.B1=B6/B1,
+                    B7.B1=B7/B1,
+                    B8.B1=B8/B1,
+                    B8A.B1=B8A/B1,
+                    B9.B1=B9/B1,
+                    B11.B1=B11/B1,
+                    B12.B1=B12/B1,
+                    
+                    B3.B2=B3/B2,
+                    B4.B2=B4/B2,
+                    B5.B2=B5/B2,
+                    B6.B2=B6/B2,
+                    B7.B2=B7/B2,
+                    B8.B2=B8/B2,
+                    B8A.B2=B8A/B2,
+                    B9.B2=B9/B2,
+                    B11.B2=B11/B2,
+                    B12.B2=B12/B2,
+                    
+                    B4.B3=B4/B3,
+                    B5.B3=B5/B3,
+                    B6.B3=B6/B3,
+                    B7.B3=B7/B3,
+                    B8.B3=B8/B3,
+                    B8A.B3=B8A/B3,
+                    B9.B3=B9/B3,
+                    B11.B3=B11/B3,
+                    B12.B3=B12/B3,
+                    
+                    B5.B4=B5/B4,
+                    B6.B4=B6/B4,
+                    B7.B4=B7/B4,
+                    B8.B4=B8/B4,
+                    B8A.B4=B8A/B4,
+                    B9.B4=B9/B4,
+                    B11.B4=B11/B4,
+                    B12.B4=B12/B4,
+                    
+                    B6.B5=B6/B5,
+                    B7.B5=B7/B5,
+                    B8.B5=B8/B5,
+                    B8A.B5=B8A/B5,
+                    B9.B5=B9/B5,
+                    B11.B5=B11/B5,
+                    B12.B5=B12/B5,
+                    
+                    B7.B6=B7/B6,
+                    B8.B6=B8/B6,
+                    B8A.B6=B8A/B6,
+                    B9.B6=B9/B6,
+                    B11.B6=B11/B6,
+                    B12.B6=B12/B6,
+                    
+                    B8.B7=B8/B7,
+                    B8A.B7=B8A/B7,
+                    B9.B7=B9/B7,
+                    B11.B7=B11/B7,
+                    B12.B7=B12/B7,
+                    
+                    B8A.B8=B8A/B8,
+                    B9.B8=B9/B8,
+                    B11.B8=B11/B8,
+                    B12.B8=B12/B8,
+                    
+                    B9.B8A=B9/B8A,
+                    B11.B8A=B11/B8A,
+                    B12.B8A=B12/B8A,
+                    
+                    B11.B9=B11/B9,
+                    B12.B9=B12/B9,
+                    
+                    B12.B11=B12/B11
+              )][# Remove rows without images
+                !is.na(B1)
+              ]
+write.csv(usgs_sentinel_harmonzied2, paste0(wd_gee, 'rating_ssc_harmonized.csv'), row.names = FALSE)
+
+usgs_sentinel_harmonized2 <- read.csv(paste0(wd_gee, 'rating_ssc_harmonized.csv'))
+
 # Make histogram of sample dates
 date_vec <- as.Date(usgs_sentinel_harmonized$sample_dt)
 date_frame <- data.frame(Lag_days = usgs_sentinel_harmonized$lag_days, sample_dt = date_vec, year = format(date_vec, format='%Y'))
 date_plot <- ggplot(date_frame, aes(x=sample_dt)) +
   theme_bw() +
-  facet_wrap(~year) +
+  facet_wrap(~year, scales = "free") +
   geom_bar(stat="count") +
   scale_x_date(breaks="4 month", labels=date_format("%b")) +
-  labs(title='Dates of Viable Sentinel-2 Imagery Data')
+  labs(title='Dates of Viable Sentinel-2 Imagery Data',
+       caption='From in situ USGS SSC data.')
 
 ggsave(date_plot, filename = paste0(wd_figures, 'acquisition_day.pdf'),
+       width = 12, height = 8)
+
+# Make histogram of sample dates for discharge ssc data
+date_vec <- as.Date(usgs_sentinel_harmonized2$sample_dt)
+date_frame <- data.frame(Lag_days = usgs_sentinel_harmonized2$lag_days, sample_dt = date_vec, year = format(date_vec, format='%Y'))
+date_plot <- ggplot(date_frame, aes(x=sample_dt)) +
+  theme_bw() +
+  facet_wrap(~year, scales = "free") +
+  geom_bar(stat="count") +
+  scale_x_date(breaks="4 month", labels=date_format("%b")) +
+  labs(title='Dates of Viable Sentinel-2 Imagery Data',
+       caption='From rating curve derived SSC data.')
+
+ggsave(date_plot, filename = paste0(wd_figures, 'rating_acquisition_day.pdf'),
        width = 12, height = 8)
 
 ### CLEAN TRANSECT DATA ###
