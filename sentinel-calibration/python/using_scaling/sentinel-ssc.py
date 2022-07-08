@@ -39,6 +39,7 @@ from argparse import Namespace
 
 ### TO DO/ISSUES
 # - Log10 in relative errror plot
+# - Relative errors just for holdout set??
 # - Make code pretty with docs and tqdm
 # - Determine max value of sensor 
 # - Implement other clustering
@@ -473,9 +474,9 @@ if __name__ == "__main__":
         parser.error("evaluation requires --csv")
     
     # Set working directory
-    wd = 'D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python'
-    print('Setting working directory as', 'D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python')
-    os.chdir(wd)
+    # wd = 'D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python'
+    # print('Setting working directory as', 'D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python')
+    # os.chdir(wd)
     # Set up subfolders
     folders = ['algs\\','clusters\\','figures\\','regression\\']
     for folder in folders:
@@ -483,16 +484,16 @@ if __name__ == "__main__":
             os.makedirs(folder)
     
     # args = Namespace(
-    #     task = 'cluster',
-    #     mode= 'train',
-    #     csv = "D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\exports\\GEE_raw\\ssc_harmonized.csv",
-    #     # csv="D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python\\clusters\\clustered_kMeans_raw_bands.csv",
-    #     # csv = "D:\\valencig\\Thesis\\sentinel-ssc\\sentinel-calibration\\python\\regression\\reg_linear.csv",
-    #     cluster_type = "agglomerative",
-    #     # reg_type  = "linear",
-    #     reg_vars = 'raw_bands',
-    #     # holdout = 0.3
+    #     task = 'regression',
+    #     mode= 'infer',
+    #     # csv = "D:/valencig/Thesis/sentinel-ssc/sentinel-calibration/exports/GEE_raw/transect/transect_harmonized.csv",
+    #     csv = "D:/valencig/Thesis/sentinel-ssc/sentinel-calibration/python/clusters/clustered_kMeans_raw_bands.csv",
+    #     # cluster_type = "kMeans",
+    #     reg_type  = "elasticNet",
+    #     reg_vars = 'full_bands',
+    #     holdout = 0.
     #     )
+    
     # Extract regression variables
     reg_vars = get_regressors(args.reg_vars)
     
