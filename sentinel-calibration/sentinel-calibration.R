@@ -55,9 +55,7 @@ library(maptools)
 library(PBSmapping)
 
 # TO DO/ISSUES
-# - Log transform data
-# - Extract discharge data
-# - Create rating curve
+
 
 ### FOR QUICK USE WITH SENTINEL-CALIBRATION.py ###
 # Standardizing
@@ -66,50 +64,68 @@ library(PBSmapping)
 # d3 <- read.csv("D:/valencig/Thesis/sentinel-ssc/sentinel-calibration/python/regression/reg_ridge.csv")
 # d4 <- read.csv("D:/valencig/Thesis/sentinel-ssc/sentinel-calibration/python/regression/reg_elasticNet.csv")
 # No standardizing
-# d1 <- read.csv("D:/valencig/Thesis/sentinel-ssc/sentinel-calibration/python/no_standard/regression/reg_linear.csv")
-# d2 <- read.csv("D:/valencig/Thesis/sentinel-ssc/sentinel-calibration/python/no_standard/regression/reg_lasso.csv")
-# d3 <- read.csv("D:/valencig/Thesis/sentinel-ssc/sentinel-calibration/python/no_standard/regression/reg_ridge.csv")
-# d4 <- read.csv("D:/valencig/Thesis/sentinel-ssc/sentinel-calibration/python/no_standard/regression/reg_elasticNet.csv")
-# 
-# d5 <- read.csv("D:/valencig/Thesis/chattahoochee-dams/chattahoochee-dams-exports/SSC_pred.csv")
-# d5 <- d5[as.Date(d5$landsat_dt) > '2017-01-01',]
-# d5 <- data.frame(d5$distance_10km, d5$SSC_mgL)
-# names(d5) <- c('landsat_distance_10km', 'landsat')
-# data = data.table(distance_10km = round_any(d1$distance_km, 10),
-#                   linear = d1$pred_SSC_mgL,
-#                   lasso = d2$pred_SSC_mgL,
-#                   ridge = d3$pred_SSC_mgL,
-#                   elasticNet = d4$pred_SSC_mgL)
-# 
-# # Remove columns without enough appearances
-# data <- data[data$distance_10km %in% names(which(table(data$distance_10km) >=200)), ]
+d1 <- read.csv("D:/valencig/Thesis/sentinel-ssc/sentinel-calibration/python/no_scaling/regression/reg_linear.csv")
+d2 <- read.csv("D:/valencig/Thesis/sentinel-ssc/sentinel-calibration/python/no_scaling/regression/reg_lasso.csv")
+d3 <- read.csv("D:/valencig/Thesis/sentinel-ssc/sentinel-calibration/python/no_scaling/regression/reg_ridge.csv")
+d4 <- read.csv("D:/valencig/Thesis/sentinel-ssc/sentinel-calibration/python/no_scaling/regression/reg_elasticNet.csv")
+# Landsat Reference
+d5 <- read.csv("D:/valencig/Thesis/chattahoochee-dams/chattahoochee-dams-exports/SSC_pred.csv")
+d5 <- d5[as.Date(d5$landsat_dt) > min(d1$date),]
+d5 <- data.frame(d5$distance_km, d5$SSC_mgL)
+names(d5) <- c('landsat_distance_km', 'landsat')
+data = data.table(distance_km = d1$distance_km,
+                  linear = d1$pred_SSC_mgL,
+                  lasso = d2$pred_SSC_mgL,
+                  ridge = d3$pred_SSC_mgL,
+                  elasticNet = d4$pred_SSC_mgL)
 
-# Test filterings
-# data$linear <- replace(data$linear, data$linear >= 1000, NA)
-# data$linear <- replace(data$linear, data$linear <= -200, NA)
-# data$lasso <- replace(data$lasso, data$lasso >= 1000, NA)
-# data$lasso <- replace(data$lasso, data$lasso <= -200, NA)
-# data$ridge <- replace(data$ridge, data$ridge >= 1000, NA)
-# data$ridge <- replace(data$ridge, data$ridge <= -200, NA)
-# data$elasticNet <- replace(data$elasticNet, data$elasticNet >= 1000, NA)
-# data$elasticNet <- replace(data$elasticNet, data$elasticNet <= -200, NA)
+# Remove columns without enough appearances
+# remove outliers at various distances
+outliers <- function(x) {
+  # quantiles <- quantile(x, c(.05, .95 ) )
+  # x < quantiles[1] | x >quantiles[2]
+  Q1 <- quantile(x, probs=.25)
+  Q3 <- quantile(x, probs=.75)
+  iqr = Q3-Q1
+  
+  upper_limit = Q3 + (iqr*1.5)
+  lower_limit = Q1 - (iqr*1.5)
+  
+  x > upper_limit | x < lower_limit
+}
+remove_outliers <- function(df, cols = names(df)) {
+  for (col in cols) {
+    df <- df[!outliers(df[[col]]),]
+  }
+  df
+}
+# distances <- unique(data$distance_km)
+# for (i in 1:length(distances)){
+#   dist_data = data[data$distance_km == distances[i],]
+#   data[data$distance_km == distances[i],] = NA
+#   dist_data <- remove_outliers(dist_data, c('linear','lasso','ridge','elasticNet'))
+#   data <- rbind(data, dist_data)
+# }
+# # Remove NA
+# data <- data[!is.na(data$distance_km),]
+data <- remove_outliers(data, c('linear','lasso','ridge','elasticNet'))
 
 # data <- data[data$linear < 1000 & data$lasso < 1000 & data$ridge < 1000 & data$elasticNet < 1000 & data$linear > -1000 & data$lasso > -1000 & data$ridge > -1000 & data$elasticNet > -1000,]
-#data <- join(data, d5, by=('distance_km'='distance_km'))
-# data <- cbindX(d5, data)
-# 
-# ggplot(data, aes(x = distance_10km, y = linear)) +
-#   stat_summary(geom = 'line', fun = 'median', aes(color = 'linear')) +
-#   stat_summary(geom = 'line', fun = 'median', aes(x = distance_10km, y = lasso, color = 'lasso')) +
-#   stat_summary(geom = 'line', fun = 'median', aes(x = distance_10km, y = ridge, color = 'ridge')) +
-#   stat_summary(geom = 'line', fun = 'median', aes(x = distance_10km, y = elasticNet, color = 'elasticNet')) +
-#   stat_summary(geom = 'line', fun = 'median', aes(x = landsat_distance_10km, y = landsat, color = 'Landsat')) +
-#   #facet_wrap(.~paste0('Decade: ', decade)) + # comment out to display mean across all time periods
-#   theme_bw()+
-#   #geom_hline(yintercept=0)+
-#   labs(title='Regressions',
-#     x = 'distance downstream',
-#        y = 'SSC (mg/L)')
+# data <- join(data, d5, by=('distance_km'='distance_km'))
+data <- cbindX(d5, data)
+
+ggplot(data, aes(x = distance_km, y = linear)) +
+  stat_summary(geom = 'line', fun = 'mean', aes(color = 'linear')) +
+  stat_summary(geom = 'line', fun = 'mean', aes(x = distance_km, y = lasso, color = 'lasso')) +
+  stat_summary(geom = 'line', fun = 'mean', aes(x = distance_km, y = ridge, color = 'ridge')) +
+  stat_summary(geom = 'line', fun = 'mean', aes(x = distance_km, y = elasticNet, color = 'elasticNet')) +
+  stat_summary(geom = 'line', fun = 'mean', aes(x = landsat_distance_km, y = landsat, color = 'Landsat')) +
+  #facet_wrap(.~paste0('Decade: ', decade)) + # comment out to display mean across all time periods
+  theme_bw()+
+  #geom_hline(yintercept=0)+
+  labs(title='full_bands',
+    x = 'distance downstream',
+       y = 'SSC (mg/L)')
 
 #### SET DIRECTORIES ####
 
@@ -323,7 +339,7 @@ for (i in 1:length(station_nums)){
 }
 
 # Export data
-save(usgs_insitu_raw, file=paste0(wd_root, '/tmp_vars/discharge_ssc.RData'))
+save(discharge_ssc, file=paste0(wd_root, '/tmp_vars/discharge_ssc.RData'))
 load(paste0(wd_root, '/tmp_vars/discharge_ssc.RData'))
 
 ### PLOT USGS SITE LOCATIONS###
@@ -364,117 +380,12 @@ station_points <- SpatialPointsDataFrame(coords = station_points[,c('lon','lat')
                                          proj4string = projection)
 st_write(st_as_sf(station_points), paste0(wd_extent,'station_points.shp'), quiet=TRUE, append=FALSE)
 
-# To test querying sentinel data at varying distances from stations
-# station_distances <- c(2, 5, 8, 10, 15, 20)
-# station_distances <- c(5)
-# # Save first station extent from each distance to make comparison plot
-# distance_transects <- data.frame(row.names = c('station','geometry'))
-# # Loop over all distances from station
-# for (dist in station_distances) {
-#   cat('\t','-> Getting transects', dist,'km up/downstream from stations\n')
-#   # To save station name and assosiated NLDI extent
-#   transects_df <- data.frame(row.names = c('station','geometry'))
-#   points_df <- data.frame(row.names = c('station','geometry'))
-#   # Progress bar
-#   pb <- txtProgressBar(0, nrow(bare_station), style = 3)
-#     # Loop over all unique stations
-#     for (row in 1:nrow(bare_station)){
-#       # print(row)
-#       setTxtProgressBar(pb, row)
-#       # Extract lat and lon from dataframe of unique station data
-#       lon1 <- as.numeric(bare_station[row, "lon"][[1]])
-#       lat1 <- as.numeric(bare_station[row, "lat"][[1]])
-#       station_num <- usgs_insitu_raw[which(usgs_insitu_raw$lon==lon1 & usgs_insitu_raw$lat==lat1),]$site_no[1]
-#       # Get NLDI stream extent up and down main channel
-#       tryCatch({
-        # extent <- findNLDI(wqp = station_num,
-        #                    nav = c('UM', 'DM'),
-        #                    find = c("flowlines"),
-        #                    distance_km = dist)
-#         # Combine upper and lower main channel
-#         merged_extent <- st_join(extent$UM_flowlines, extent$DM_flowlines)
-#         transects_df <<- rbind(transects_df, data.frame(station = station_num, st_combine(merged_extent$geometry)))
-#         },
-#       error = function(e) {
-#         # Some sites don't have NLDI extents so just store location of station
-#         station_point <- st_sfc(st_point(c(lon1, lat1)))
-#         st_crs(station_point) <- projection
-#         points_df <<- rbind(points_df, data.frame(station = station_num, station_point))
-#       })
-#       # Combine line extents into one, apply label of station
-#       # if (row == nrow(bare_station)){
-#       #   distance_transects <- rbind(distance_transects, reduce_extent)
-#       # }
-#     }
-#   close(pb)
-#   # Create sf object from dataframe holding station nums and geometry
-#   transects_sf <- st_as_sf(transects_df)
-#   points_df <- st_as_sf(points_df)
-#   # Save transects as one shapefile --> NEED TO FIX
-#   st_write(transects_sf, paste0(wd_extent,'transects_',dist,'km.shp'), quiet=TRUE, append=FALSE)
-#   st_write(points_sf, paste0(wd_extent,'station_points',dist,'km.shp'), quiet=TRUE, append=FALSE)
-# }
-# Make comparison plot 
-# theme to remove tick marks and axes labels
-# tick_theme <- theme_bw() + theme(axis.text.x=element_blank(),
-#                       axis.ticks.x=element_blank(),
-#                       axis.text.y=element_blank(),
-#                       axis.ticks.y=element_blank())
-# p1 <- ggplot() + 
-#   geom_sf(data = distance_transects[1,],
-#           aes(geometry = geometry),
-#           color = 'red') +
-#   tick_theme +
-#   labs(title = '2 km') 
-# p2 <- ggplot() + 
-#   geom_sf(data = distance_transects[2,],
-#           aes(geometry = geometry),
-#           color = 'red') +
-#   tick_theme +
-#   labs(title = '5 km')
-# p3 <- ggplot() + 
-#   geom_sf(data = distance_transects[3,],
-#           aes(geometry = geometry),
-#           color = 'red') +
-#   tick_theme +
-#   labs(title = '8 km')
-# p4 <- ggplot() + 
-#   geom_sf(data = distance_transects[4,],
-#           aes(geometry = geometry),
-#           color = 'red') +
-#   tick_theme +
-#   labs(title = '10 km')
-# p5 <- ggplot() + 
-#   geom_sf(data = distance_transects[5,],
-#           aes(geometry = geometry),
-#           color = 'red') +
-#   tick_theme +
-#   labs(title = '15 km')
-# p6 <- ggplot() + 
-#   geom_sf(data = distance_transects[6,],
-#           aes(geometry = geometry),
-#           color = 'red') +
-#   tick_theme +
-#   labs(title = '20 km')
-# 
-# distance_plot <- grid.arrange(p1, p2, p3, p4, p5, p6, 
-#                               top=textGrob("River Transect Lengths", gp=gpar(fontsize=20,font=3)),
-#                               ncol=3)
-# ggsave(distance_plot, filename = paste0(wd_figures, 'transect_lengths.pdf'),
-#        width = 10, height = 8)
-
-### Clustering ###
-# print('RUNNING CLUSTERING ALGORITHMS')
-# wd_clusters<- paste0(wd_exports, 'clusters/')
-# if(!dir.exists(wd_clusters)){
-#   dir.create(wd_clusters)}
-# cat('\t','-> Saving cluster data to:', wd_clusters,'\n')
-# 
-# # Need to not use conda env for final code running
-# use_condaenv('sentinel-ssc', required = TRUE)
-# system('python -c print(hello world)')
-
-### GET NLDI EXTENTS FOR ALL RIVERS ###
+# Discharge station points as shapefile
+station_points2 <- data.frame(site_no=discharge_ssc$site_no, lat=as.numeric(discharge_ssc$lat), lon=as.numeric(discharge_ssc$lon)) %>% distinct()
+station_points2 <- SpatialPointsDataFrame(coords = station_points2[,c('lon','lat')], 
+                                          data=station_points2,
+                                          proj4string = projection)
+st_write(st_as_sf(station_points2), paste0(wd_extent,'discharge_station_points.shp'), quiet=TRUE, append=FALSE)
 
 ### IMPORT AND HARMONIZE SENTINEL DATA ###
 lag_days <- 4
@@ -541,7 +452,9 @@ usgs_sentinel_harmonzied <- setDT(gee_data)[
               # Remove duplicated columns
               ,':='(station = NULL, match_dt_start = NULL, match_dt_end = NULL, i.lat = NULL, i.lon = NULL)
               ][ # Add squared columns
-                ,':='(B1.2 = B1^2,
+                ,':='(
+                      # Add squared columns
+                      B1.2 = B1^2,
                       B2.2 = B2^2,
                       B3.2 = B3^2,
                       B4.2 = B4^2,
@@ -553,6 +466,19 @@ usgs_sentinel_harmonzied <- setDT(gee_data)[
                       B9.2 = B9^2,
                       B11.2 = B11^2,
                       B12.2 = B12^2,
+                      # Add square root columns
+                      B1.0.5 = B1^0.5,
+                      B2.0.5 = B2^0.5,
+                      B3.0.5 = B3^0.5,
+                      B4.0.5 = B4^0.5,
+                      B5.0.5 = B5^0.5,
+                      B6.0.5 = B6^0.5,
+                      B7.0.5 = B7^0.5,
+                      B8.0.5 = B8^0.5,
+                      B8A.0.5 = B8A^0.5,
+                      B9.0.5 = B9^0.5,
+                      B11.0.5 = B11^0.5,
+                      B12.0.5 = B12^0.5,
                       # Add band ratios
                       B2.B1=B2/B1,
                       B3.B1=B3/B1,
@@ -666,7 +592,7 @@ lag_day_plot2 <- ggplot(num_samples2, aes(x = Lag_days, y = Num_samples, fill = 
 ggsave(lag_day_plot2, filename = paste0(wd_figures, 'rating_lag_day_plot.pdf'),
        width = 8, height = 10)
 
-usgs_sentinel_harmonzied2 <- setDT(gee_data)[
+usgs_sentinel_harmonized2 <- setDT(gee_data)[
   # Create lead lag times and add to DF
   ,':='(match_dt_start = date - lag_days,
         match_dt_end = date + lag_days),][
@@ -689,6 +615,19 @@ usgs_sentinel_harmonzied2 <- setDT(gee_data)[
                     B9.2 = B9^2,
                     B11.2 = B11^2,
                     B12.2 = B12^2,
+                    # Add square root columns
+                    B1.0.5 = B1^0.5,
+                    B2.0.5 = B2^0.5,
+                    B3.0.5 = B3^0.5,
+                    B4.0.5 = B4^0.5,
+                    B5.0.5 = B5^0.5,
+                    B6.0.5 = B6^0.5,
+                    B7.0.5 = B7^0.5,
+                    B8.0.5 = B8^0.5,
+                    B8A.0.5 = B8A^0.5,
+                    B9.0.5 = B9^0.5,
+                    B11.0.5 = B11^0.5,
+                    B12.0.5 = B12^0.5,
                     # Add band ratios
                     B2.B1=B2/B1,
                     B3.B1=B3/B1,
@@ -769,7 +708,7 @@ usgs_sentinel_harmonzied2 <- setDT(gee_data)[
               )][# Remove rows without images
                 !is.na(B1)
               ]
-write.csv(usgs_sentinel_harmonzied2, paste0(wd_gee, 'rating_ssc_harmonized.csv'), row.names = FALSE)
+write.csv(usgs_sentinel_harmonized2, paste0(wd_gee, 'rating_ssc_harmonized.csv'), row.names = FALSE)
 
 usgs_sentinel_harmonized2 <- read.csv(paste0(wd_gee, 'rating_ssc_harmonized.csv'))
 
@@ -820,8 +759,10 @@ setnames(transect_clean,
                  'B11_median',
                  'B12_median'), new = c('B1','B2','B3','B4','B5','B6','B7','B8','B8A','B9','B11','B12'))
 
-transect_sentinel_harmonzied <- setDT(transect_clean)[ # Add squared columns
-              ,':='(B1.2 = B1^2,
+transect_sentinel_harmonzied <- setDT(transect_clean)[
+              ,':='(
+                    # Add squared columns
+                    B1.2 = B1^2,
                     B2.2 = B2^2,
                     B3.2 = B3^2,
                     B4.2 = B4^2,
@@ -833,6 +774,19 @@ transect_sentinel_harmonzied <- setDT(transect_clean)[ # Add squared columns
                     B9.2 = B9^2,
                     B11.2 = B11^2,
                     B12.2 = B12^2,
+                    # Add square root columns
+                    B1.0.5 = B1^0.5,
+                    B2.0.5 = B2^0.5,
+                    B3.0.5 = B3^0.5,
+                    B4.0.5 = B4^0.5,
+                    B5.0.5 = B5^0.5,
+                    B6.0.5 = B6^0.5,
+                    B7.0.5 = B7^0.5,
+                    B8.0.5 = B8^0.5,
+                    B8A.0.5 = B8A^0.5,
+                    B9.0.5 = B9^0.5,
+                    B11.0.5 = B11^0.5,
+                    B12.0.5 = B12^0.5,
                     # Add band ratios
                     B2.B1=B2/B1,
                     B3.B1=B3/B1,
@@ -911,4 +865,10 @@ transect_sentinel_harmonzied <- setDT(transect_clean)[ # Add squared columns
                     
                     B12.B11=B12/B11
               )]
-write.csv(transect_sentinel_harmonzied, paste0(wd_gee, '/transect/transect_harmonized.csv'), row.names = FALSE)
+# Cloud and ice filter
+transect_sentinel_harmonized <- transect_sentinel_harmonized[
+  transect_sentinel_harmonized$thin_cirrus_percentage < 5 &
+  transect_sentinel_harmonized$snow_ice < 5,
+]
+write.csv(transect_sentinel_harmonized, paste0(wd_gee, '/transect/transect_harmonized.csv'), row.names = FALSE)
+transect_harmonized <- read.csv(paste0(wd_gee, '/transect/transect_harmonized.csv'))
