@@ -1,8 +1,3 @@
-################################ TO DO #########################################
-# - Histogram of SSC samples
-# - Histogram of SSC samples *after* rating curve
-
-
 #### LIBRARY IMPORTS ####
 library(dataRetrieval)
 library(nhdplusTools)
