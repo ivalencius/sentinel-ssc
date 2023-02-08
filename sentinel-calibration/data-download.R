@@ -65,22 +65,23 @@ library(PBSmapping)
 
 print('SETTING UP IMPORTS')
 # Set root directory
-wd_root <- "D:/valencig/Thesis/sentinel-ssc/sentinel-calibration"
+# wd_root <- "D:/valencig/Thesis/sentinel-ssc/sentinel-calibration"
+wd_root <- "C:/Users/ilanv/Desktop/sentinel-ssc"
 setwd(wd_root)
 
 # Imports folder (store all import files here)
-wd_imports <- paste0(wd_root,"/imports/")
+wd_imports <- paste0(wd_root, "/imports/")
 # Exports folder (save all figures, tables here)
-wd_exports <- paste0(wd_root,"/exports/")
+wd_exports <- paste0(wd_root, "/exports/")
 
 wd_figures <- paste0(wd_exports, "figures/")
 # Sub folders
-wd_extent<- paste0(wd_exports, 'station_transects/')
-wd_gee <- paste0(wd_exports,'GEE_raw/')
-wd_rating <- paste0(wd_exports, 'rating_curves/')
+# wd_extent<- paste0(wd_exports, 'station_transects/')
+wd_gee <- paste0(wd_exports, "GEE_raw/")
+wd_rating <- paste0(wd_exports, "rating_curves/")
 
 # Create folders within root directory to organize outputs if those folders do not exist
-export_folder_paths <- c(wd_exports, wd_figures, wd_extent, wd_gee, wd_rating)
+export_folder_paths <- c(wd_exports, wd_figures, wd_gee, wd_rating)
                          # , wd_exports_gc,wd_station_standalone, 
                          # wd_standalone_models, wd_standalone_figures, wd_autocorrelation)
 for(i in 1:length(export_folder_paths)){
@@ -93,7 +94,7 @@ projection <- CRS("+proj=longlat +datum=WGS84 +no_defs")
 
 #### INITIALIZE MAP DATA FOR N.AMERICA ####
 
-cat('\t','-> Initializing USA map','\n')
+cat("\t", "-> Initializing USA map","\n")
 setwd(wd_imports)
 # get states shapefile for clipping/display
 us_states_spatial <-  us_states(map_date = NULL, resolution = c("low"), states = NULL) %>% as('Spatial')
@@ -119,19 +120,19 @@ us_ca <- fortify(us_states_spatial)
 #### IMPORT IN SITU SSC DATA ####
 
 # From USGS
-print('IMPORTING IN SITU DATA')
-startDate <- '2017-01-01'
-endDate <- '2022-07-07'
-cat('\t','-> Start Date:', startDate,'\n')
-cat('\t','-> End Date:', endDate,'\n')
+print("IMPORTING IN SITU DATA")
+startDate <- "2017-01-01"
+endDate <- "2023-02-07"
+cat("\t","-> Start Date:", startDate, "\n")
+cat("\t","-> End Date:", endDate, "\n")
 
 #ssc_codes <- c('00530','80154')
-ssc_codes <- c('80154')
-cat('\t','-> Downloading USGS SSC Data','\n')
+ssc_codes <- c("80154")
+cat("\t","-> Downloading USGS SSC Data", "\n")
 wqp_insitu_raw <- data.table(readWQPdata(parameterCd = ssc_codes,
                                           startDate=startDate,
                                           endDate=endDate))[,":=" (
-                                            agency_cd = 'USGS',
+                                            agency_cd = "USGS",
                                             site_no = unlist(strsplit(MonitoringLocationIdentifier, split='-'))[c(FALSE, TRUE)],
                                             sample_dt = ActivityStartDate,
                                             SSC_mgL = ResultMeasureValue,
@@ -140,7 +141,7 @@ wqp_insitu_raw <- data.table(readWQPdata(parameterCd = ssc_codes,
                                             )][,.(agency_cd, site_no, sample_dt, SSC_mgL, sample_depth_m, sample_method)]
 
 # Need to use WQP data as well
-nwis_insitu_raw <- data.frame(matrix(ncol=4,nrow=0, dimnames=list(NULL, c('agency_cd', 'site_no', 'sample_dt', 'SSC_mgL'))))
+nwis_insitu_raw <- data.frame(matrix(ncol=4,nrow=0, dimnames=list(NULL, c("agency_cd", "site_no", "sample_dt", "SSC_mgL"))))
 for (state in us_states_spatial$state_abbr){
   nwis_data <- data.table(readNWISdata(stateCd=state,
                                      parameterCd = ssc_codes, 
@@ -148,26 +149,15 @@ for (state in us_states_spatial$state_abbr){
                                             endDt=endDate))
   if(nrow(nwis_data)==0){} # Do nothing if no data returned
   else{
-    nwis_data_clean <- nwis_data[,":=" (agency_cd = agency_cd, 
-                                              site_no = site_no,
-                                              sample_dt = dateTime,
-                                              SSC_mgL = X_80154_00003
-                                            )][,.(agency_cd, site_no, sample_dt, SSC_mgL)]
+    nwis_data_clean <- nwis_data[, ":=" (agency_cd = agency_cd,
+    site_no = site_no,
+    sample_dt = dateTime,
+    SSC_mgL = X_80154_00003
+    )][,.(agency_cd, site_no, sample_dt, SSC_mgL)]
     nwis_insitu_raw <- rbind(nwis_insitu_raw, nwis_data_clean)
   }
 }
 nwis_insitu_raw <- nwis_insitu_raw %>% filter(SSC_mgL >= 0)
-
-# Remove discrete wqp data recorded on same day/location as nwis data (to prevent over counting one day)
-# pb <- txtProgressBar(0, nrow(wqp_insitu_raw), style = 3)
-# for (i in 1:nrow(wqp_insitu_raw)){
-#   setTxtProgressBar(pb, i)
-#   nwis_sample <- nwis_insitu_raw %>% filter(sample_dt==wqp_insitu_raw$sample_dt[i] & site_no==wqp_insitu_raw$site_no[i])
-#   if (nrow(nwis_sample==0)){
-#     wqp_insitu_raw$site_no[i] <- -1 # Set -1 flag and filter after
-#   }
-# }
-# wqp_insitu_raw <- wqp_insitu_raw %>% filter(site_no > 0)
 
 # Merge nwis and usgs
 usgs_insitu_raw <- bind_rows(data.frame(wqp_insitu_raw), data.frame(nwis_insitu_raw))
@@ -175,28 +165,23 @@ usgs_insitu_raw <- bind_rows(data.frame(wqp_insitu_raw), data.frame(nwis_insitu_
 usgs_insitu_raw <- usgs_insitu_raw %>% filter(SSC_mgL >=0)
 # Convert to all Caps
 usgs_insitu_raw <- mutate_all(usgs_insitu_raw, toupper)
-# # Save raw data
-# write.csv(usgs_insitu_raw, file = paste(wd_exports,"NWIS_WQP_SSC.csv"), row.names=F)
-# Aggregate data taken on the same day
-# usgs_insitu_unique <- usgs_insitu_raw %>% group_by(site_no, )
-# usgs_insitu_raw <- nwis_insitu_raw
 
 # For WQP need USGS- prefix
 usgs_stations <- paste0("USGS-", unique(usgs_insitu_raw$site_no))
 
 # Get properties of usgs WQP stations
-cat('\t','-> Downloading USGS Station Metadata','\n')
+cat("\t","-> Downloading USGS Station Metadata", "\n")
 station_info <- data.table(whatWQPsites(siteid=usgs_stations))[,":="(
   station_nm = MonitoringLocationName,
   drainage_area_km2 = DrainageAreaMeasure.MeasureValue*(2.58999/1.00000073), # sq mi -> sq km
   contributing_drainage_area_km2 = ContributingDrainageAreaMeasure.MeasureValue*(2.58999/1.00000073), # sq mi -> sq km
   lat = LatitudeMeasure,
   lon = LongitudeMeasure,
-  elevation_m = VerticalMeasure.MeasureValue *0.3048, # ft -> m
+  elevation_m = VerticalMeasure.MeasureValue *0.3048, # ft -> m # nolint
   site_no = unlist(strsplit(MonitoringLocationIdentifier, split='-'))[c(FALSE, TRUE)],
   site_type = MonitoringLocationTypeName,
   HUC = HUCEightDigitCode
-)][,.(site_no,
+)][, .(site_no,
       station_nm,
       lat,
       lon,
@@ -216,31 +201,58 @@ is_w_stations <- left_join(usgs_insitu_raw, station_info, by=("site_no"="site_no
 
 # All data stored as characters, convert some columns to numbers'
 cols <- c("lat", "lon", "drainage_area_km2", "SSC_mgL", "sample_depth_m")
+# cols2 <- c()
+# station_info[, cols] <- lapply(cols, function(x) as.numeric(station_info[[x]]))
 is_w_stations[, cols] <- lapply(cols, function(x) as.numeric(is_w_stations[[x]]))
+
+
+# Save and load variables for quick execution
+# save(usgs_insitu_raw, file=paste0(wd_root, '/tmp_vars/usgs_insitu_raw.RData'))
+# load(paste0(wd_root, '/tmp_vars/usgs_insitu_raw.RData'))
+
+# Reduce in-situ SSC measurements to one sample per day
+# samplesPerDay <- usgs_insitu_raw %>% 
+#   group_by(site_no, sample_dt) %>%
+#   summarise(samples = n()) %>%
+#   filter(samples > 1)
+
+# Reduce in-situ SSC measurements to one sample per station per day
+oneDaySSC <- usgs_insitu_raw %>% 
+  group_by(site_no, sample_dt) %>%
+  summarise(SSC_mgL = mean(as.numeric(SSC_mgL))) %>%
+  left_join(station_info, by = ("site_no"="site_no"))
 
 # Apply log to SSC measurements
 is_w_stations$log10_SSC_mgL <- log10(is_w_stations$SSC_mgL)
 is_w_stations$log10_SSC_mgL[is_w_stations$log10_SSC_mgL <= 0] <- 0.01 # Roughly 1 mg/L
 hist(is_w_stations$log10_SSC_mgL)
 
-# Save and load variables for quick execution
-# save(usgs_insitu_raw, file=paste0(wd_root, '/tmp_vars/usgs_insitu_raw.RData'))
-# load(paste0(wd_root, '/tmp_vars/usgs_insitu_raw.RData'))
+oneDaySSC$log10_SSC_mgL <- log10(oneDaySSC$SSC_mgL)
+oneDaySSC$log10_SSC_mgL[oneDaySSC$log10_SSC_mgL <= 0] <- 0.01 # Roughly 1 mg/L
+hist(oneDaySSC$log10_SSC_mgL)
 
 # Save raw data
-write.csv(usgs_insitu_raw, file = paste(wd_exports,"NWIS_WQP_SSC.csv"), row.names=F)
-write.csv(is_w_stations, file = paste(wd_exports,"NWIS_WQP_SSC_STATIONINFO.csv"), row.names=F)
+write.csv(usgs_insitu_raw, file = paste(wd_exports, "NWIS_WQP_SSC.csv", sep=""), row.names=F)
+write.csv(is_w_stations, file = paste(wd_exports, "NWIS_WQP_SSC_STATIONINFO.csv", sep=""), row.names=F)
+write.csv(oneDaySSC, file = paste(wd_exports, "ONEDAYSAMPLE_SSC.csv", sep=""), row.names=F)
+write.csv(station_info, file = paste(wd_exports, "STATIONINFO.csv", sep=""), row.names=F)
+
+# Also save station info as a shape file
+coordinates(station_info) <- ~lon+lat
+proj4string(station_info) <- projection
+shapefile(station_info, paste0(wd_exports, "STATION_INFO.shp"), overwrite=T)
+
+# Free up some space
+rm(usgs_insitu_raw)
+rm(is_w_stations)
 
 ### Create SSC vs. Q Rating Curve ###
-
-### Investigate SSC Samples ###
-samplesPerDay <- group_by(usgs_insitu_raw, site_no, sample_dt)
 
 ### IMPORT IN SITU DISCHARGE DATA ###
 # Import data and make rating curves for all stations, remove unused ones later (to save time if multiple gee code running)
 discharge_data <- data.table(readNWISdata( # TAKES A LONG TIME
-  sites = unique(is_w_stations$site_no),
-  parameterCd = '00060',
+  sites = unique(oneDaySSC$site_no),
+  parameterCd = "00060",
   startDt = startDate))[,":=" (
     sample_dt = dateTime,
     Q_m3s = X_00060_00003 * 0.02832 # ft3/s to m3/s
@@ -252,15 +264,25 @@ discharge_data <- data.table(readNWISdata( # TAKES A LONG TIME
 # Convert to all Caps
 discharge_data <- mutate_all(discharge_data, toupper)
 
+# Filter negative and NA discharge --> CANT DO THIS
+# discharge_data <- discharge_data %>% filter(Q_m3s>=0)
+
 # Save and load variables for quick execution
 # save(discharge_data, file=paste0(wd_root, '/tmp_vars/discharge_data.RData'))
 # load(paste0(wd_root, '/tmp_vars/discharge_data.RData'))
 write.csv(discharge_data, file = paste(wd_exports,"NWIS_Q.csv"), row.names=F)
 
-# Filter negative and NA discharge
-# discharge_data <- discharge_data %>% filter(Q_m3s>=0)
+# For loading discharge data
+discharge_data <- read.csv(file = paste(wd_exports,"NWIS_Q.csv"))
+# Coerce data to numeric after loading CSV
+cols <- c("site_no")
+discharge_data[, cols] <- lapply(cols, function(x) as.character(discharge_data[[x]]))
 
-SSCQ <- left_join(is_w_stations, discharge_data, by=c('site_no','sample_dt'))
+# ISSUES MERGING DATA
+SSCQ <- left_join(oneDaySSC, discharge_data, by=c("site_no"="site_no", "sample_dt"="sample_dt"))
+
+# Sites without discharge data
+noQSites <- unique(SSCQ[is.na(SSCQ$Q_m3s),]$site_no)
 
 # Remove stations without discharge data or na SSC columns
 # usgs_insitu_raw <- usgs_insitu_raw[!is.na(usgs_insitu_raw$discharge_m3s),]
