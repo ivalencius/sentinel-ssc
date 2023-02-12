@@ -1,8 +1,8 @@
 ################################ TO DO #########################################
 # - Create filters to reduce samples per site
-# - ISSUES WITH SITE NO
+# - Add density plot to error metrics
 
-#### LIBRARY IMPORTS ####
+### LIBRARY IMPORTS ###
 library(dataRetrieval)
 library(nhdplusTools)
 # library(tidyhydat)
@@ -61,7 +61,7 @@ library(maptools)
 library(PBSmapping)
 library(dict)
 
-#### SET DIRECTORIES ####
+### SET DIRECTORIES ###
 
 print('SETTING UP IMPORTS')
 # Set root directory
@@ -451,8 +451,8 @@ rToReg <- setDT(rHClustered)[ ,":="(
 )]
 
 # Create train and holdout set
-# Indexes for holdout set
-rand_idx <- sample(nrow(rToReg), round(0.25*nrow(rToReg)), replace = FALSE)
+# Indexes for holdout set (25% holdout set)
+rand_idx <- sample(nrow(rToReg), round(0.25 * nrow(rToReg)), replace = FALSE)
 holdout25 <- rToReg[rand_idx, ]
 train75 <- rToReg[!rand_idx, ]
 rm(rToReg)
@@ -473,6 +473,18 @@ regBands[["raw_sqrt"]] <- c(
   )
 regBands[["full_band"]] <- colnames(train75)[startsWith(colnames(train75), "B")]
 
+
+relative_error <- function(true, pred){
+  return(10^(
+      median(
+        abs(
+          log10(
+            pred/true
+        )
+        )
+      )
+    ) - 1)
+}
 # Modified from https://github.com/evandethier/satellite-ssc/blob/master/landsat-calibration/landsat-57-calibration.R
 
 # Try band combos
@@ -484,6 +496,10 @@ for(bands in c("raw_bands", "raw_ratio", "raw_square", "raw_sqrt", "full_band"))
   if(!dir.exists(bandDir)) {
     dir.create(bandDir)
   }
+
+  # Create variable to save predicted values over each cluster
+  errorDf <- data.frame(matrix(ncol=2))
+  colnames(errorDf) <- c("log10_SSC_mgL", "predlog10_SSC")
 
   # Regress for each cluster
   for (i in c(1, 2, 3, 4, 5, 6)){
@@ -511,31 +527,41 @@ for(bands in c("raw_bands", "raw_ratio", "raw_square", "raw_sqrt", "full_band"))
     # NEED TO STORE REGRESSOR
     # cluster_funs[[i]] <- ssc_lm
 
+    forError <- holdout25[cluster == i]
+
     glm_pred <- predict(ssc_lm, 
-      newx = as.matrix(holdout25 %>% dplyr::select(regBands[[bands]])),
+      newx = as.matrix(forError %>% dplyr::select(regBands[[bands]])),
       s = "lambda.1se"
     )
 
     holdoutPlot <- data.frame(
-      log10_SSC_mgL = holdout25$log10_SSC_mgL,
+      log10_SSC_mgL = forError$log10_SSC_mgL,
       lambda.1se = glm_pred
     )
-    colnames(holdoutPlot) <- c("log10_SSC_mgL", "predLog10_SSC")
 
-    regPlot <- ggplot(holdoutPlot, aes(x = 10^log10_SSC_mgL, y = 10^predLog10_SSC)) +
+    colnames(holdoutPlot) <- c("log10_SSC_mgL", "predlog10_SSC")
+
+    # Combine data with all clusters
+    errorDf <- rbind(errorDf, holdoutPlot)
+
+    # Determine relative error --> FIX THIS???
+    RE <- relative_error(10^holdoutPlot$log10_SSC_mgL, 10^holdoutPlot$predlog10_SSC)
+
+    regPlot <- ggplot(holdoutPlot, aes(x = 10^log10_SSC_mgL, y = 10^predlog10_SSC)) +
       geom_point(na.rm = TRUE) + 
-      geom_abline(slope = 1, intercept = 0) +
+      geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
       scale_x_log10(limits = c(1,100000), labels = fancy_scientific) +
       scale_y_log10(limits = c(1,100000), labels = fancy_scientific) +
       # scale_fill_brewer(palette = 'PuOr') + scale_color_brewer(palette = 'PuOr') +
       # season_facet +
       theme(legend.position = 'right') +
+      theme_classic() +
       labs(
+        title = paste0("Prediction for Cluster ", i),
+        caption = paste0("Band Combination: '", bands, "'"),
+        subtitle = paste0("Relative Error: ", round(RE, 3)),
         x = 'Actual SSC (mg/L)',
-        y = 'Estimated SSC (mg/L)'
-        # color = 'Percent < sand size'
-        # color = 'Sand percentage'
-        # color = 'Station'
+        y = 'Satellite Estimated SSC (mg/L)'
       )
     
     # Save the regression plot
@@ -544,6 +570,37 @@ for(bands in c("raw_bands", "raw_ratio", "raw_square", "raw_sqrt", "full_band"))
     
     # NEED TO STORE RELATIVE ERROR OF PREDICTION
   }
+  
+  # Remove first row of dataframe (caused by creating a matrix)
+  errorDf <- errorDf[is.finite(rowSums(errorDf)),]
+  # Convert dataframe to numeric
+  errorDf[1, ] <- as.numeric(errorDf[1, ])
+  errorDf[2, ] <- as.numeric(errorDf[2, ])
+
+  # Evaluate relative error over all clusters
+  netErr <- relative_error(10^errorDf$log10_SSC_mgL, 10^errorDf$predlog10_SSC)
+
+  # Plot all cluster data
+  totalPlot <- ggplot(errorDf, aes(x = 10^log10_SSC_mgL, y = 10^predlog10_SSC)) +
+      geom_point(na.rm = TRUE) +
+      geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+      scale_x_log10(limits = c(1,100000), labels = fancy_scientific) +
+      scale_y_log10(limits = c(1,100000), labels = fancy_scientific) +
+      # scale_fill_brewer(palette = 'PuOr') + scale_color_brewer(palette = 'PuOr') +
+      # season_facet +
+      theme(legend.position = 'right') +
+      theme_classic() +
+      labs(
+        title = "Prediction for all clusters",
+        caption = paste0("Band Combination: '", bands, "'"),
+        subtitle = paste0("Relative Error: ", round(netErr, 3)),
+        x = 'Actual SSC (mg/L)',
+        y = 'Satellite Estimated SSC (mg/L)'
+      )
+
+  # Save the regression plot
+  ggsave(totalPlot, filename = paste0(bandDir, "total-error.pdf"),
+      width = 8, height = 8)
 }
 
 
