@@ -1,6 +1,5 @@
 ################################ TO DO #########################################
-# - Create filters to reduce samples per site
-# - Add density plot to error metrics
+# - Deal with NAs in Regression
 
 ### LIBRARY IMPORTS ###
 library(dataRetrieval)
@@ -344,7 +343,7 @@ rHClustered <- read.csv(paste0(wd_cluster, "RATING_TRAINING_CLUSTERED.csv"))
 rHClustered$site_no <- as.character(rHClustered$site_no)
 
 # Add all band variables
-rToReg <- setDT(rHClustered)[ ,":="(
+rToReg <- setDT(rHClustered)[, ":="(
   # Add squared columns
   B1.2 = B1^2,
   B2.2 = B2^2,
@@ -450,11 +449,10 @@ rToReg <- setDT(rHClustered)[ ,":="(
   B12.B11=B12/B11
 )]
 
-# Create train and holdout set
-# Indexes for holdout set (25% holdout set)
-rand_idx <- sample(nrow(rToReg), round(0.25 * nrow(rToReg)), replace = FALSE)
-holdout25 <- rToReg[rand_idx, ]
-train75 <- rToReg[!rand_idx, ]
+# Create 25% holdout set on a per-cluster basis
+set.seed(23)
+holdout25 <- rToReg %>% group_by(cluster) %>% sample_frac(0.25) %>% ungroup() %>% setDT()
+train75 <- anti_join(rToReg, holdout25, by = c("site_no", "sample_dt", "log10_SSC_mgL"))
 rm(rToReg)
 
 regBands <- dict()
@@ -485,8 +483,26 @@ relative_error <- function(true, pred){
       )
     ) - 1)
 }
-# Modified from https://github.com/evandethier/satellite-ssc/blob/master/landsat-calibration/landsat-57-calibration.R
 
+# Create dataframe to store error metrics
+relativeErrors <- data.frame(
+  raw_bands = c(0, 0, 0, 0, 0, 0, 0),
+  raw_ratio = c(0, 0, 0, 0, 0, 0, 0),
+  raw_square = c(0, 0, 0, 0, 0, 0, 0),
+  raw_sqrt = c(0, 0, 0, 0, 0, 0, 0),
+  full_band = c(0, 0, 0, 0, 0, 0, 0)
+)
+rownames(relativeErrors) <- c(
+  "cluster_1",
+  "cluster_2",
+  "cluster_3",
+  "cluster_4",
+  "cluster_5",
+  "cluster_6",
+  "net"
+)
+
+# Modified from https://github.com/evandethier/satellite-ssc/blob/master/landsat-calibration/landsat-57-calibration.R
 # Try band combos
 for(bands in c("raw_bands", "raw_ratio", "raw_square", "raw_sqrt", "full_band")){ 
 # for(bands in c("raw_bands")) {
@@ -498,11 +514,18 @@ for(bands in c("raw_bands", "raw_ratio", "raw_square", "raw_sqrt", "full_band"))
   }
 
   # Create variable to save predicted values over each cluster
-  errorDf <- data.frame(matrix(ncol=2))
+  errorDf <- data.frame(matrix(ncol = 2))
   colnames(errorDf) <- c("log10_SSC_mgL", "predlog10_SSC")
+
+  # Relative Errors
+  clusterErrors <- c()
+
+  # Dataframe to store regression equations
+  cluster_funs <- list()
 
   # Regress for each cluster
   for (i in c(1, 2, 3, 4, 5, 6)){
+  # for (i in c(2)) {
     # regressors_sel <- regressors[-which(regressors == 'site_no')]
     
     lm_data <- train75[cluster == i] # only chooses sites within cluster
@@ -513,9 +536,12 @@ for(bands in c("raw_bands", "raw_ratio", "raw_square", "raw_sqrt", "full_band"))
     glm_x <- as.matrix(lm_data %>% dplyr::select(regBands[[bands]]))
     
     ssc_lm <- cv.glmnet(x = glm_x, y = glm_y, family = 'gaussian', type.measure = "mse", nfolds = 10)
+
+    # Save regression equation for the cluster
+    cluster_funs[[i]] <- ssc_lm
     
     # Select model within one standard error with min coefficients
-    cv.opt <- coef(ssc_lm, s = "lambda.1se")
+    cv.opt <- coef(ssc_lm, s = "lambda.min")
     coef_ex <- cbind(rownames(cv.opt), as.numeric(cv.opt))
     colnames(coef_ex) <- c('variable', 'value')
     
@@ -529,33 +555,45 @@ for(bands in c("raw_bands", "raw_ratio", "raw_square", "raw_sqrt", "full_band"))
 
     forError <- holdout25[cluster == i]
 
-    glm_pred <- predict(ssc_lm, 
+    glm_pred <- predict(ssc_lm,
       newx = as.matrix(forError %>% dplyr::select(regBands[[bands]])),
-      s = "lambda.1se"
+      # s = "lambda.1se"
+      s = "lambda.min"
     )
 
     holdoutPlot <- data.frame(
       log10_SSC_mgL = forError$log10_SSC_mgL,
-      lambda.1se = glm_pred
+      lambda.min = glm_pred
     )
 
     colnames(holdoutPlot) <- c("log10_SSC_mgL", "predlog10_SSC")
 
+    # Remove NA values that can be introduced --> WHY
+    holdoutPlot <- holdoutPlot[is.finite(rowSums(holdoutPlot)), ]
+
     # Combine data with all clusters
     errorDf <- rbind(errorDf, holdoutPlot)
 
-    # Determine relative error --> FIX THIS???
+    # Determine relative error
     RE <- relative_error(10^holdoutPlot$log10_SSC_mgL, 10^holdoutPlot$predlog10_SSC)
+    clusterErrors <- append(clusterErrors, RE)
 
     regPlot <- ggplot(holdoutPlot, aes(x = 10^log10_SSC_mgL, y = 10^predlog10_SSC)) +
-      geom_point(na.rm = TRUE) + 
+      geom_point(na.rm = TRUE) +
       geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
-      scale_x_log10(limits = c(1,100000), labels = fancy_scientific) +
-      scale_y_log10(limits = c(1,100000), labels = fancy_scientific) +
+      scale_x_log10(
+        limits = c(1, 10000), 
+        labels = fancy_scientific,
+        breaks = c(10, 100, 1000, 10000)) +
+      scale_y_log10(
+        limits = c(1, 10000),
+        labels = fancy_scientific,
+        breaks = c(10, 100, 1000, 10000)) +
       # scale_fill_brewer(palette = 'PuOr') + scale_color_brewer(palette = 'PuOr') +
       # season_facet +
       theme(legend.position = 'right') +
-      theme_classic() +
+      theme_bw() +
+      annotation_logticks() +
       labs(
         title = paste0("Prediction for Cluster ", i),
         caption = paste0("Band Combination: '", bands, "'"),
@@ -572,24 +610,42 @@ for(bands in c("raw_bands", "raw_ratio", "raw_square", "raw_sqrt", "full_band"))
   }
   
   # Remove first row of dataframe (caused by creating a matrix)
-  errorDf <- errorDf[is.finite(rowSums(errorDf)),]
+  errorDf <- errorDf[is.finite(rowSums(errorDf)), ]
+
   # Convert dataframe to numeric
   errorDf[1, ] <- as.numeric(errorDf[1, ])
   errorDf[2, ] <- as.numeric(errorDf[2, ])
 
   # Evaluate relative error over all clusters
   netErr <- relative_error(10^errorDf$log10_SSC_mgL, 10^errorDf$predlog10_SSC)
+  clusterErrors <- append(clusterErrors, netErr)
+  relativeErrors[[bands]] <- clusterErrors
 
   # Plot all cluster data
   totalPlot <- ggplot(errorDf, aes(x = 10^log10_SSC_mgL, y = 10^predlog10_SSC)) +
       geom_point(na.rm = TRUE) +
+      stat_density_2d(
+        aes(fill = ..level.., alpha = ..level..),
+        bins = 10,
+        geom = "polygon",
+        colour = "black"
+        ) +
+      guides(alpha = "none", fill = "none") +
+      scale_fill_gradient(low = "black", high = "#00ffd971") +
       geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
-      scale_x_log10(limits = c(1,100000), labels = fancy_scientific) +
-      scale_y_log10(limits = c(1,100000), labels = fancy_scientific) +
+      scale_x_log10(
+        limits = c(1, 10000), 
+        labels = fancy_scientific,
+        breaks = c(10, 100, 1000, 10000)) +
+      scale_y_log10(
+        limits = c(1, 10000),
+        labels = fancy_scientific,
+        breaks = c(10, 100, 1000, 10000)) +
       # scale_fill_brewer(palette = 'PuOr') + scale_color_brewer(palette = 'PuOr') +
       # season_facet +
       theme(legend.position = 'right') +
-      theme_classic() +
+      theme_bw() +
+      annotation_logticks() +
       labs(
         title = "Prediction for all clusters",
         caption = paste0("Band Combination: '", bands, "'"),
@@ -601,8 +657,13 @@ for(bands in c("raw_bands", "raw_ratio", "raw_square", "raw_sqrt", "full_band"))
   # Save the regression plot
   ggsave(totalPlot, filename = paste0(bandDir, "total-error.pdf"),
       width = 8, height = 8)
+
+  # Save regression Equations
+  save(cluster_funs, file = paste0(bandDir, "regressors.RData"))
 }
 
+# Save Relative Errors
+write.table(relativeErrors, sep = ",", file = paste0(wd_cluster, "RELATIVE_ERRORS.csv"))
 
 # ### RUN BELOW TO IMPORT AND CLEAN NEW DATA ###
 # transect_file <- "D:/valencig/Thesis/sentinel-ssc/sentinel-calibration/exports/GEE_raw/transect/sentinel_2_SR__transect_2017_2022_20scale.csv"
