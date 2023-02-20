@@ -1,33 +1,12 @@
 ######################### Load packages ########################################
 
 library(dataRetrieval)
-# library(sp)
 library(sf)
-# library(maptools)
-# library(magrittr)
-# library(maps)
-# library(rgdal)
 library(ggplot2)
 library(usmap)
-# library(stringr)
 library(dplyr)
-# library(patchwork)
 library(dams)
 library(data.table)
-# library(nhdplusTools)
-# library(riverdist)
-# library(GISTools)
-# library(rgeos)
-# library(tidyr)
-# library(qpcR)
-# library(scales)
-# library(vioplot)
-# library(raster)
-# library(units)
-# library(extrafont)
-# loadfonts(device = "win")
-# library(latex2exp) # use TeX() to render latex
-# library(paletteer) # color palettes
 
 ####################### Set up paramters #######################################
 
@@ -36,14 +15,6 @@ startPoint <-  c(-85.03114856911581, 29.84561518630128)
 # startPoint <- c(-85, 30)
 # Distance to look upstream (set to be very large for whole transect)
 dist2Look <- 686 # must be an integer (no expressions)
-# For extracting dam information
-damsOfInterest <- c(
-    "Buford Dam",
-    "West Point Dam",
-    "Walter F. George Lock and Dam",
-    "Jim Woodruff Lock and Dam",
-    "George W. Andrews Lock and Dam"
-)
 
 # Working Directory
 wd_root <- "C:/Users/ilanv/Desktop/sentinel-ssc/chattahoochee-dams"
@@ -53,6 +24,17 @@ setwd(wd_root)
 wd_exports <- paste0(wd_root, "/exports/")
 # Figures folder
 wd_figure <- paste0(wd_exports, "figures/")
+
+# NID dataset
+damFileName <- paste0(wd_exports, "NID.csv")
+# For extracting dam information
+damsOfInterest <- c(
+    "Buford Dam",
+    "West Point Dam",
+    "Walter F. George Lock and Dam",
+    "Jim Woodruff Lock and Dam",
+    "George W. Andrews Lock and Dam"
+)
 
 # Create folders within root directory
 export_folder_paths <- c(wd_exports, wd_figure)
@@ -146,18 +128,16 @@ Q <- data.table(readNWISdata(
     Q_m3s = X_00060_00003 * 0.02832 # ft3/s to m3/s
   )][, .(agency_cd, site_no, sample_dt, Q_m3s)]
 
-######################### Extract DAMS  #######################################
-
-damFileName <- paste0(wd_exports, "NID_DAMS.csv")
+######################### Extract DAMS  ########################################
 
 # Download National Inventory of Dams
-tryCatch({
-    nid_dams <- read.csv(damFileName, skip = 1)
-    }, error = function(cond) {
-        download.file("https://nid.usace.army.mil/api/nation/csv", damFileName)
-    }
-)
-nid_dams <- read.csv(damFileName, skip = 1)
+# tryCatch({
+#     nid_dams <- read.csv(damFileName, skip = 1)
+#     }, error = function(cond) {
+#         download.file("https://nid.usace.army.mil/api/nation/csv", damFileName)
+#     }
+# )
+nid_dams <- read.csv(damFileName)
 
 # Get dams in the basin --> now can Just filter by name
 # # Remove dams with NA lon/lat
@@ -168,26 +148,25 @@ nid_dams <- read.csv(damFileName, skip = 1)
 # basin_dams <- st_intersection(nid_dams_sf, riverData$basin$geometry)
 # # Get their rows from nid_dams (geom_point needs lat and lon coordinates)
 # dams <- nid_dams %>% filter(NID.ID %in% basin_dams$NID.ID)
-# erdc_dams <- dams %>% filter(Owner.Types == "Federal")
+# dams <- dams %>% filter(Owner.Types == "Federal")
 
 dams <- nid_dams %>% filter(
-    Dam.Name %chin% damsOfInterest ||
-    Other.Names %chin% damsOfInterest)
+    Dam.Name %chin% damsOfInterest)
 
-# erdc_dams$distance_km <- 0
-# erdc_dams$res_start <- 0
+dams$distance_km <- 0
+dams$res_start <- 0
 
-# erdc_dams[erdc_dams$Dam.Name == "Buford Dam",]$distance_km = 0
-# erdc_dams[erdc_dams$Dam.Name == "Buford Dam",]$res_start = 0
-# erdc_dams[erdc_dams$Dam.Name == "West Point Dam",]$distance_km = 240
-# erdc_dams[erdc_dams$Dam.Name == "West Point Dam",]$res_start = 192
-# erdc_dams[erdc_dams$Dam.Name == "Walter F. George Lock and Dam",]$distance_km = 432	
-# erdc_dams[erdc_dams$Dam.Name == "Walter F. George Lock and Dam",]$res_start = 374
-# erdc_dams[erdc_dams$Dam.Name == "Jim Woodruff Lock and Dam",]$distance_km = 552
-# erdc_dams[erdc_dams$Dam.Name == "Jim Woodruff Lock and Dam",]$res_start = 520
-# erdc_dams[erdc_dams$Dam.Name == "George W. Andrews Lock and Dam",]$distance_km = 478
-# erdc_dams[erdc_dams$Dam.Name == "George W. Andrews Lock and Dam",]$res_start = 476
-# erdc_dams$V_m3 <- erdc_dams$Volume..Cubic.Yards. * 0.7646
+dams[dams$Dam.Name == "Buford Dam", ]$distance_km <- 0
+dams[dams$Dam.Name == "Buford Dam", ]$res_start <- 0
+dams[dams$Dam.Name == "West Point Dam", ]$distance_km <- 240
+dams[dams$Dam.Name == "West Point Dam", ]$res_start <- 192
+dams[dams$Dam.Name == "Walter F. George Lock and Dam", ]$distance_km <- 432
+dams[dams$Dam.Name == "Walter F. George Lock and Dam", ]$res_start <- 374
+dams[dams$Dam.Name == "Jim Woodruff Lock and Dam", ]$distance_km <- 552
+dams[dams$Dam.Name == "Jim Woodruff Lock and Dam", ]$res_start <- 520
+dams[dams$Dam.Name == "George W. Andrews Lock and Dam", ]$distance_km <- 478
+dams[dams$Dam.Name == "George W. Andrews Lock and Dam", ]$res_start <- 476
+dams$V_m3 <- dams$Volume..Cubic.Yards. * 0.7646
 
 
 ########################## Save data  ##########################################
@@ -195,3 +174,5 @@ write.csv(SSC,
     file = paste0(wd_exports, "CHATTAHOOCHEE_SSC.csv"), row.names = FALSE)
 write.csv(Q,
     file = paste0(wd_exports, "CHATTAHOOCHEE_Q.csv"), row.names = FALSE)
+write.csv(dams,
+    file = paste0(wd_exports, "ERDC_CHATTAHOOCHEE_DAMS.csv"), row.names = FALSE)
