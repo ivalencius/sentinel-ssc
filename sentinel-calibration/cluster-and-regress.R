@@ -222,12 +222,12 @@ iHarmonized <- setDT(sentinel)[
 
 # ISSUE: in-situ samples not stored for sites with no linear regression
 missingSites <- unique(iHarmonized$site_no)[!(unique(iHarmonized$site_no) %in% unique(rHarmonized$site_no))]
-missingData <- iHarmonized %>% 
+missingData <- iHarmonized %>%
   filter(site_no %in% missingSites)
 rHMerge <- rbind(rHarmonized, missingData)
 
 # Reduce harmonized samples (rating curve derived SSC)
-rHClean <- rHMerge %>% 
+rHClean <- rHMerge %>%
   # For each image --> isolate one with minimum lag day
   group_by(site_no, product_id) %>%
   slice(which.min(abs(lag_days))) %>%
@@ -331,7 +331,7 @@ ggsave(cluster_viz, filename = paste0(wd_cluster, "cluster_sanity_check.pdf"),
        width = 12, height = 8)
 
 ### Save variables ###
-save(clusters_calculated, file=paste0(wd_cluster, 'clusters_calculated.RData'))
+save(clusters_calculated, file = paste0(wd_cluster, 'clusters_calculated.RData'))
 write.csv(cluster_stations, paste0(wd_cluster, "STATION_CLUSTER_ID.csv"), row.names = FALSE)
 write.csv(rHClustered, paste0(wd_cluster, "RATING_TRAINING_CLUSTERED.csv"), row.names = FALSE)
 
