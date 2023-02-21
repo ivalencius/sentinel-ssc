@@ -24,6 +24,7 @@ library(gridExtra)
 library(ggpubr)
 library(htmlwidgets)
 library(htmltools)
+# library(mapview)
 Sys.setenv(RSTUDIO_PANDOC="C:/Program Files/Pandoc")
 
 # Various themes
@@ -386,8 +387,9 @@ siteSamples <- station_sites %>%
 stations <- left_join(stations, siteSamples, by = c("site_no"="site_no"))
 stations <- stations %>% filter(samples >= 1)
 stations$station_nm <- paste0(
-  "USGS-", stations$site_no, ": ", stations$sttn_nm,
-  " (", stations$samples, " training samples)")
+  "<strong>", stations$sttn_nm, "</strong><br><strong>Site ID:</strong> USGS-", 
+  stations$site_no,
+  "<br><strong>Training Samples:</strong> ", stations$samples)
 # Import basins
 basins <- readOGR( 
   dsn= paste0(train_files, "/GEE_RAW/SSC_stations_HUC8Basins.shp"), 
@@ -396,6 +398,9 @@ basins <- readOGR(
 ) %>% st_as_sf()
 basins <- left_join(basins, basinSamples, by = ("huc8"="huc8"))
 basins <- basins %>% filter(sites >= 1)
+basins$basin_nm <- paste0(
+  "<strong>", basins$name, "</strong><br><strong>HUC8:</strong> ", basins$huc8, 
+  "<br><strong>Area:</strong> ", round(as.numeric(basins$areasqkm)), " km^2")
 reproj <- st_set_crs(basins, CRS("+proj=longlat +datum=WGS84 +no_defs"))
 
 # Create visualization
@@ -428,13 +433,15 @@ title <- tags$div(
 labels <- c("1-3 (0-25%)", "3-11 (25-50%)", "12-86 (50-75%)", "87-315 (75-100%)")
 hucBasins <- leaflet() %>% addTiles(
   urlTemplate = "http://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}&s=Ga", 
-  attribution = 'Google') %>%
+  attribution = 'Google',
+  ) %>%
   addPolygons(
     data = reproj, 
     stroke = FALSE,
     smoothFactor = 0.2,
     fillOpacity = 0.75,
-    color = "blue"
+    color = "blue",
+    popup = ~basin_nm
     # color = ~pal(samples)
   ) %>% 
   addCircleMarkers(
@@ -455,6 +462,7 @@ hucBasins <- leaflet() %>% addTiles(
     labFormat = function(type, cuts, p) {paste0(labels)}) %>%
   addControl(title, position = "topleft", className="map-title")
 
+# mapshot(hucBasins, url = paste0(wd_figure, "TRAINING_STATIONS.html"))
 saveWidget(hucBasins, file = paste0(wd_figure, "TRAINING_STATIONS.html"))
 ############################ SSC STATIONS  #####################################
 df <- read.csv(paste0(train_files, "/cluster_regress/SSC_stations_gte90m.csv"))
