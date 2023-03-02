@@ -1,5 +1,3 @@
-################################ TO DO #########################################
-
 ### LIBRARY IMPORTS ###
 library(dataRetrieval)
 library(nhdplusTools)
@@ -66,33 +64,8 @@ clusters2Open <- "C:/Users/ilanv/Desktop/sentinel-ssc/exports/cluster_regress/"
 saveName <- "SENTINEL2_20m_SSC.csv"
 
 # Need to alter band regressors to match regression used
-regs2Open <- "C:/Users/ilanv/Desktop/sentinel-ssc/exports/cluster_regress/full_band/"
-# Raw Bands
-# regBands <- function(x) {
-#   return(c('B1','B2','B3','B4', 'B5', 'B6', 'B7','B8','B8A', 'B9', 'B11','B12'))
-#   }
-# # Raw Ratio
-# regBands <- function(x) {
-#   return(c(
-#     c('B1','B2','B3','B4', 'B5', 'B6', 'B7','B8','B8A', 'B9', 'B11','B12'),
-#     colnames(x)[unlist(lapply(colnames(x), grepl, pattern=".B"))]
-#   ))}
-# # Raw Square
-# regBands <- function(x) { 
-#   return(c(
-#     c('B1','B2','B3','B4', 'B5', 'B6', 'B7','B8','B8A', 'B9', 'B11','B12'),
-#     colnames(x)[endsWith(colnames(x), ".2")]
-#   )) }
-# # Raw sqrt
-# regBands <- function(x) { 
-#   return(c(
-#     c('B1','B2','B3','B4', 'B5', 'B6', 'B7','B8','B8A', 'B9', 'B11','B12'),
-#     colnames(x)[endsWith(colnames(x), "0.05")]
-#   ))}
-# Full bands
-regBands <- function(x) {
-  return(colnames(x)[startsWith(colnames(x), "B")])
-  }
+load(file = paste0(clusters2Open, "cluster_regressors.RData"))
+load(file = paste0(clusters2Open, "cluster_bands.RData"))
 
 ### SET DIRECTORIES ###
 
@@ -178,11 +151,11 @@ setnames(sentinel,
 # Load Clusters
 load(file = paste0(clusters2Open, 'clusters_calculated.RData'))
 
-cluster_regressors <- c('B1','B2','B3','B4', 'B5', 'B6', 'B7','B8','B8A', 'B9', 'B11','B12')
+c_bands<- c('B1','B2','B3','B4', 'B5', 'B6', 'B7','B8','B8A', 'B9', 'B11','B12')
 
 # For every 2km segment, cluster based on median reflectance
-cluster_medians <- data.table(matrix(nrow = 0, ncol = length(cluster_regressors) + 1))
-names(cluster_medians) <- c('distance_km', cluster_regressors)
+cluster_medians <- data.table(matrix(nrow = 0, ncol = length(c_bands) + 1))
+names(cluster_medians) <- c('distance_km', c_bands)
 unique_dist <- unique(sentinel$distance_km)
 
 pb <- txtProgressBar(0, length(unique_dist), style = 3)
@@ -190,12 +163,12 @@ for (i in seq_along(unique_dist)){
   setTxtProgressBar(pb, i)
   dist <- unique_dist[i]
   # Extract data
-  dist_data <- setDT(sentinel[sentinel$distance_km == dist,])[, ..cluster_regressors] %>% as.matrix()
+  dist_data <- setDT(sentinel[sentinel$distance_km == dist,])[, ..c_bands] %>% as.matrix()
   # Reduce by median
   dist_median <- colMedians(dist_data, na.rm=T)
   # Create table to hold site data
   dist_df <- data.table(t(data.table(dist_median)))
-  names(dist_df) <- cluster_regressors
+  names(dist_df) <- c_bands
   dist_df$distance_km <- dist
   # Generate regression
   cluster_medians <- rbind(cluster_medians, dist_df)
@@ -331,16 +304,13 @@ sentinelBands <- setDT(copy(sentinel))[, ":="(
   B12.B11=B12/B11
 )]
 
-# Load regression (loads as "cluster_funs")
-load(file = paste0(regs2Open, "regressors.RData"))
-
-bands2Reg <- regBands(sentinelBands)
+bands2Reg <- cluster_bands[[sentinelBands$cluster[1]]]
 
 # Should only be 1 cluster per river
 cluster <- sentinelBands$cluster[1]
 
 ssc_pred <- predict(
-    cluster_funs[[cluster]],
+    cluster_regressors[[cluster]],
       newx = as.matrix(sentinelBands %>% dplyr::select(all_of(bands2Reg))),
       s = "lambda.min"
     )

@@ -1,6 +1,3 @@
-################################ TO DO #########################################
-# - Deal with NAs in Regression
-
 ### LIBRARY IMPORTS ###
 library(dataRetrieval)
 library(nhdplusTools)
@@ -144,7 +141,8 @@ cols2Go <- c(
   "solar_zen",
   "thin_cirrus_percentage",
   "water_median",
-  "sensor"
+  "sensor",
+  "B2_count"
   )
 # Import seperate Sentinel-2 .csv files
 sentinel <- data.table()
@@ -272,7 +270,7 @@ for (i in seq_along(unique_sites)){
     rHClean[rHClean$site_no == site,]
     )[, ..cluster_regressors] %>% as.matrix()
   # Reduce by median
-  site_median <- colMedians(site_data, na.rm = TRUE) # avoid NA in any band column
+  site_median <- colMedians(site_data, na.rm = TRUE) # avoid NA in any column
   # Create table to hold site data
   site_df <- data.table(t(data.table(site_median)))
   names(site_df) <- cluster_regressors
@@ -290,7 +288,7 @@ cluster_centers <- clusters_calculated$centers
 # Assign cluster to each site
 cluster_medians$cluster <- clusters_calculated$cluster
 # Extract cluster for each station
-cluster_stations <- cluster_medians[,.(site_no, cluster)]
+cluster_stations <- cluster_medians[, .(site_no, cluster)]
 rHClustered <- left_join(rHClean, cluster_stations, by = c("site_no" = "site_no"))
 
 # Visualize Clusters
@@ -306,13 +304,13 @@ ssc_category_labels[length(ssc_category_labels)] <- paste0('> ', ssc_categories[
 viz_df <- as.data.table(rHClustered)[
   ,':='(cluster_sel = cluster,
         # # Categorize SSC value as one of selected categories
-        ssc_category = cut(10^log10_SSC_mgL, 
+        ssc_category = cut(10^log10_SSC_mgL,
                            breaks = ssc_categories,
                            labels = ssc_category_labels))][]
 
 # Generate median B,G,R for each SSC category and each cluster or site
 ssc_category_color <- viz_df %>% group_by(cluster_sel, ssc_category) %>% 
-  summarise_at(vars("B4","B3","B2"), mean)
+  summarise_at(vars("B4", "B3", "B2"), mean)
 
 raster_color_types <- geom_raster(aes(fill = rgb(B4/2200,B3/2200,B2/2200))) # true color
 
@@ -336,7 +334,7 @@ write.csv(cluster_stations, paste0(wd_cluster, "STATION_CLUSTER_ID.csv"), row.na
 write.csv(rHClustered, paste0(wd_cluster, "RATING_TRAINING_CLUSTERED.csv"), row.names = FALSE)
 
 
-### DEVELOP REGRESSION -> REMEMBER: ONLY RATING CURVE DATA ###
+### DEVELOP REGRESSION -> REMEMBER: ONLY INSITU DATA ###
 
 # Load variables
 rHClustered <- read.csv(paste0(wd_cluster, "RATING_TRAINING_CLUSTERED.csv"))
@@ -451,6 +449,7 @@ rToReg <- setDT(rHClustered)[, ":="(
 
 # Create 25% holdout set on a per-cluster basis
 set.seed(23)
+rToReg <- subset(rToReg, select=-c(B2_count))
 holdout25 <- rToReg %>% group_by(cluster) %>% sample_frac(0.25) %>% ungroup() %>% setDT()
 train75 <- anti_join(rToReg, holdout25, by = c("site_no", "sample_dt", "log10_SSC_mgL"))
 rm(rToReg)
@@ -605,8 +604,6 @@ for(bands in c("raw_bands", "raw_ratio", "raw_square", "raw_sqrt", "full_band"))
     # Save the regression plot
     ggsave(regPlot, filename = paste0(bandDir, "error-cluster-", i, ".pdf"),
        width = 8, height = 8)
-    
-    # NEED TO STORE RELATIVE ERROR OF PREDICTION
   }
   
   # Remove first row of dataframe (caused by creating a matrix)
@@ -665,193 +662,106 @@ for(bands in c("raw_bands", "raw_ratio", "raw_square", "raw_sqrt", "full_band"))
 # Save Relative Errors
 write.table(relativeErrors, sep = ",", file = paste0(wd_cluster, "RELATIVE_ERRORS.csv"))
 
-# ### RUN BELOW TO IMPORT AND CLEAN NEW DATA ###
-# transect_file <- "D:/valencig/Thesis/sentinel-ssc/sentinel-calibration/exports/GEE_raw/transect/sentinel_2_SR__transect_2017_2022_20scale.csv"
-# transect_raw <- read.csv(transect_file)
-# transect_clean <- transect_raw[ , !(names(transect_raw) %in% c('system.index','.geo'))]
-# transect_clean[,'date'] <- as.Date(transect_clean$date)
-# setnames(transect_clean, 
-#          old = c('B1_median',
-#                  'B2_median',
-#                  'B3_median',
-#                  'B4_median',
-#                  'B5_median',
-#                  'B6_median',
-#                  'B7_median',
-#                  'B8_median',
-#                  'B8A_median',
-#                  'B9_median',
-#                  'B11_median',
-#                  'B12_median'), new = c('B1','B2','B3','B4','B5','B6','B7','B8','B8A','B9','B11','B12'))
+# Investigate relative errors and for each cluster, save the best model
+# Cluster 1 --> full bands
+# Cluster 2 --> raw_square
+# Cluster 3 --> raw_ratio
+# Cluster 4 --> raw_square
+# Cluster 5 --> raw_ratio
+# Cluster 6 --> full_band
+cluster_regressors <- list()
+load(paste0(wd_cluster, "full_band/regressors.RData"))
+cluster_regressors[[1]] <- cluster_funs[[1]]
+cluster_regressors[[6]] <- cluster_funs[[6]]
+load(paste0(wd_cluster, "raw_square/regressors.RData"))
+cluster_regressors[[2]] <- cluster_funs[[2]]
+cluster_regressors[[4]] <- cluster_funs[[4]]
+load(paste0(wd_cluster, "raw_ratio/regressors.RData"))
+cluster_regressors[[3]] <- cluster_funs[[3]]
+cluster_regressors[[5]] <- cluster_funs[[5]]
+save(cluster_regressors, file=paste0(wd_cluster, "cluster_regressors.RData"))
 
-# transect_clean <- as.data.table(transect_clean)[,':='(
-#   # Add squared columns
-#   B1.2 = B1^2,
-#   B2.2 = B2^2,
-#   B3.2 = B3^2,
-#   B4.2 = B4^2,
-#   B5.2 = B5^2,
-#   B6.2 = B6^2,
-#   B7.2 = B7^2,
-#   B8.2 = B8^2,
-#   B8A.2 = B8A^2,
-#   B9.2 = B9^2,
-#   B11.2 = B11^2,
-#   B12.2 = B12^2,
-#   # Add square root columns
-#   B1.0.5 = B1^0.5,
-#   B2.0.5 = B2^0.5,
-#   B3.0.5 = B3^0.5,
-#   B4.0.5 = B4^0.5,
-#   B5.0.5 = B5^0.5,
-#   B6.0.5 = B6^0.5,
-#   B7.0.5 = B7^0.5,
-#   B8.0.5 = B8^0.5,
-#   B8A.0.5 = B8A^0.5,
-#   B9.0.5 = B9^0.5,
-#   B11.0.5 = B11^0.5,
-#   B12.0.5 = B12^0.5,
-#   # Add band ratios
-#   B2.B1=B2/B1,
-#   B3.B1=B3/B1,
-#   B4.B1=B4/B1,
-#   B5.B1=B5/B1,
-#   B6.B1=B6/B1,
-#   B7.B1=B7/B1,
-#   B8.B1=B8/B1,
-#   B8A.B1=B8A/B1,
-#   B9.B1=B9/B1,
-#   B11.B1=B11/B1,
-#   B12.B1=B12/B1,
-  
-#   B3.B2=B3/B2,
-#   B4.B2=B4/B2,
-#   B5.B2=B5/B2,
-#   B6.B2=B6/B2,
-#   B7.B2=B7/B2,
-#   B8.B2=B8/B2,
-#   B8A.B2=B8A/B2,
-#   B9.B2=B9/B2,
-#   B11.B2=B11/B2,
-#   B12.B2=B12/B2,
-  
-#   B4.B3=B4/B3,
-#   B5.B3=B5/B3,
-#   B6.B3=B6/B3,
-#   B7.B3=B7/B3,
-#   B8.B3=B8/B3,
-#   B8A.B3=B8A/B3,
-#   B9.B3=B9/B3,
-#   B11.B3=B11/B3,
-#   B12.B3=B12/B3,
-  
-#   B5.B4=B5/B4,
-#   B6.B4=B6/B4,
-#   B7.B4=B7/B4,
-#   B8.B4=B8/B4,
-#   B8A.B4=B8A/B4,
-#   B9.B4=B9/B4,
-#   B11.B4=B11/B4,
-#   B12.B4=B12/B4,
-  
-#   B6.B5=B6/B5,
-#   B7.B5=B7/B5,
-#   B8.B5=B8/B5,
-#   B8A.B5=B8A/B5,
-#   B9.B5=B9/B5,
-#   B11.B5=B11/B5,
-#   B12.B5=B12/B5,
-  
-#   B7.B6=B7/B6,
-#   B8.B6=B8/B6,
-#   B8A.B6=B8A/B6,
-#   B9.B6=B9/B6,
-#   B11.B6=B11/B6,
-#   B12.B6=B12/B6,
-  
-#   B8.B7=B8/B7,
-#   B8A.B7=B8A/B7,
-#   B9.B7=B9/B7,
-#   B11.B7=B11/B7,
-#   B12.B7=B12/B7,
-  
-#   B8A.B8=B8A/B8,
-#   B9.B8=B9/B8,
-#   B11.B8=B11/B8,
-#   B12.B8=B12/B8,
-  
-#   B9.B8A=B9/B8A,
-#   B11.B8A=B11/B8A,
-#   B12.B8A=B12/B8A,
-  
-#   B11.B9=B11/B9,
-#   B12.B9=B12/B9,
-  
-#   B12.B11=B12/B11
-# )]
+# Save cluster bands along
+cluster_bands <- list()
+cluster_bands[[1]] <- regBands[["full_band"]]
+cluster_bands[[6]] <- regBands[["full_band"]]
+cluster_bands[[2]] <- regBands[["raw_square"]]
+cluster_bands[[4]] <- regBands[["raw_square"]]
+cluster_bands[[3]] <- regBands[["raw_ratio"]]
+cluster_bands[[5]] <- regBands[["raw_ratio"]]
+save(cluster_bands, file=paste0(wd_cluster, "cluster_bands.RData"))
+# Create total error plot
 
-# cluster_medians <- data.table(matrix(nrow=0, ncol=length(regressors)+1))
-# names(cluster_medians) <- c('distance_km', regressors)
-# unique_dist <- unique(transect_clean$distance_km)
-# pb <- txtProgressBar(0, length(unique_dist), style = 3)
-# for (i in seq_along(unique_dist)){
-#   setTxtProgressBar(pb, i)
-#   dist = unique_dist[i]
-#   # Extract data
-#   dist_data <- transect_clean[transect_clean$distance_km == dist,][, ..regressors] %>% as.matrix()
-#   # Reduce by median
-#   dist_median <- colMedians(dist_data, na.rm=T)
-#   # Create table to hold site data
-#   dist_df <- data.table(t(data.table(dist_median)))
-#   names(dist_df) <- regressors
-#   dist_df$distance_km <- dist
-#   # Generate regression
-#   cluster_medians <- rbind(cluster_medians, dist_df)
-# }
+# Create variable to save predicted values over each cluster
+errorDf <- data.frame(matrix(ncol = 2))
+colnames(errorDf) <- c("log10_SSC_mgL", "predlog10_SSC")
+# Regress for each cluster
+for (i in c(1, 2, 3, 4, 5, 6)){
+  forError <- holdout25[cluster == i]
 
-# # Load Clusters
-# load(paste0(wd_root, '/tmp_vars/clusters_calculated.RData'))
-# load(paste0(wd_root, '/tmp_vars/clusters_calculated2.RData'))
+  glm_pred <- predict(cluster_regressors[[i]],
+    newx = as.matrix(forError %>% dplyr::select(cluster_bands[[i]])),
+    # s = "lambda.1se"
+    s = "lambda.min"
+  )
 
-# # DO YOU WANT TO USE RATING CURVE DERIVED CLUSTERS
-# clusters_calculated <- clusters_calculated2
+  holdoutPlot <- data.frame(
+    log10_SSC_mgL = forError$log10_SSC_mgL,
+    lambda.min = glm_pred
+  )
 
-# # Assign cluster to each site
-# cluster_medians$cluster <- cl_predict(clusters_calculated, cluster_medians)
-# # Extract cluster for each dist
-# cluster_dist <- cluster_medians[,.(distance_km, cluster)]
+  colnames(holdoutPlot) <- c("log10_SSC_mgL", "predlog10_SSC")
 
-# transect_sentinel_harmonized <- left_join(transect_clean, cluster_dist, by=('distance_km'='distance_km'))
+  # Remove NA values that can be introduced
+  holdoutPlot <- holdoutPlot[is.finite(rowSums(holdoutPlot)), ]
 
-# # Generate median B,G,R for each SSC category and each cluster or site
-# ssc_category_color <- transect_sentinel_harmonized  %>%group_by(cluster) %>% 
-#   summarise_at(vars("B4","B3","B2"), mean)
-# raster_color_types <- geom_raster(aes(fill = rgb(B4/2200,B3/2200,B2/2200))) # true color
+  # Combine data with all clusters
+  errorDf <- rbind(errorDf, holdoutPlot)
+}
 
-# ggplot(ssc_category_color, aes(x = cluster, y=cluster)) +
-#   raster_color_types +
-#   scale_fill_identity() +
-#   theme_classic()+
-#   # scale_x_continuous(expand_scale(add = c(0,0))) + 
-#   # scale_y_discrete(expand_scale(mult = c(0,0))) +
-#   theme(axis.text.x = element_text(angle = 90)) + 
-#   labs()
-# # width_drainage <- read.csv("D:/valencig/Thesis/sentinel-ssc/sentinel-calibration/exports/GEE_raw/transect/chattahoochee_centerline_buffered_width.csv")
-# # transect_sentinel_harmonized <- left_join(transect_sentinel_harmonized, width_drainage, by=('distance_km'='distance_km'))
-# # Cloud and ice filter
-# # transect_sentinel_harmonized <- transect_sentinel_harmonized[
-# #   transect_sentinel_harmonized$thin_cirrus_percentage < 5 &
-# #   transect_sentinel_harmonized$snow_ice < 5,
-# # ]
+# Remove first row of dataframe (caused by creating a matrix)
+errorDf <- errorDf[is.finite(rowSums(errorDf)), ]
 
-# # Bar plot of cluster
-# cluster_freq <- as.data.frame(table(transect_sentinel_harmonized$cluster))
-# colnames(cluster_freq) <- c('Cluster', 'Freq')
-# ggplot(cluster_freq, aes(Cluster, Freq)) +
-#   geom_bar(stat='identity')
+# Convert dataframe to numeric
+errorDf[1, ] <- as.numeric(errorDf[1, ])
+errorDf[2, ] <- as.numeric(errorDf[2, ])
 
-# # Set cluster to majority cluster (should be 1 clear winner)
-# transect_sentinel_harmonized$cluster <- 3
+# Evaluate relative error over all clusters
+netErr <- relative_error(10^errorDf$log10_SSC_mgL, 10^errorDf$predlog10_SSC)
 
-# write.csv(transect_sentinel_harmonized, paste0(wd_gee, '/transect/chattahoochee_transect_20scale_ratingclust3.csv'), row.names = FALSE)
-# transect_sentinel_harmonized <- read.csv(paste0(wd_gee, '/transect/transect_harmonized_20scale.csv'))
+# Plot all cluster data
+totalPlot <- ggplot(errorDf, aes(x = 10^log10_SSC_mgL, y = 10^predlog10_SSC)) +
+    geom_point(na.rm = TRUE, alpha=0.5) +
+    stat_density_2d(
+      aes(fill = ..level.., alpha = ..level..),
+      bins = 10,
+      geom = "polygon",
+      colour = "black",
+      alpha = 0.25
+      ) +
+    guides(alpha = "none", fill = "none") +
+    scale_fill_gradient(low = "black", high = "#00ffd971") +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+    scale_x_log10(
+      limits = c(1, 10000), 
+      labels = fancy_scientific,
+      breaks = c(10, 100, 1000, 10000)) +
+    scale_y_log10(
+      limits = c(1, 10000),
+      labels = fancy_scientific,
+      breaks = c(10, 100, 1000, 10000)) +
+    # scale_fill_brewer(palette = 'PuOr') + scale_color_brewer(palette = 'PuOr') +
+    # season_facet +
+    theme(legend.position = 'right') +
+    theme_bw() +
+    annotation_logticks() +
+    labs(
+      title = "Prediction for all clusters",
+      subtitle = paste0("Relative Error: ", round(netErr, 3)),
+      x = 'In-Situ SSC (mg/L)',
+      y = 'Satellite Estimated SSC (mg/L)'
+    )
+
+# Save the regression plot
+ggsave(totalPlot, filename = paste0(wd_cluster, "net-error.pdf"),
+    width = 8, height = 8)
