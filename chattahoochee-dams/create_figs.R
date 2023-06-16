@@ -24,8 +24,10 @@ library(gridExtra)
 library(ggpubr)
 library(htmlwidgets)
 library(htmltools)
-# library(mapview)
+library(mapview)
+library(dataRetrieval)
 Sys.setenv(RSTUDIO_PANDOC="C:/Program Files/Pandoc")
+# Sys.setenv(WEBSHOTJS="C:/Users/ilanv/AppData/Roaming/PhantomJS")
 
 # Various themes
 library(paletteer) # color palettes, 
@@ -52,8 +54,8 @@ wd_figure <- paste0(wd_exports, "figures/")
 train_files <- "C:/Users/ilanv/Desktop/sentinel-ssc/exports/"
 
 ############################   TO-DO  ##########################################
-# - Sentinel-landsat-USGS flux over time
-# - Remake all old plots
+
+
 #######################   RIVER GROUPING   #####################################
 df <- read.csv(paste0(train_files, "/cluster_regress/RATING_TRAINING_CLUSTERED.csv"))
 ssc_categories <- c(0,50,100,250,500,750,1e6)
@@ -95,7 +97,7 @@ ggplot(ssc_category_color, aes(x = cluster_sel, y = ssc_category)) +
 
 ggsave(
   filename = paste0(wd_figure, "CLUSTER_GROUPINGS.png"),
-  width = 8,
+  width = 9,
   height = 8,
   units = "cm"
 )
@@ -310,13 +312,14 @@ ggsave(
 df <- read.csv(paste0(train_files, "/cluster_regress/RATING_TRAINING_CLUSTERED.csv"))
 df$cluster <- as.character(df$cluster)
 
-ggplot(df, aes(x = cluster, fill = cluster)) +
-  geom_histogram(stat="count", color = "black") +
+ggplot(df, aes(x = cluster)) +
+  geom_histogram(stat="count", color = "black", fill="#3bbecc") +
   # coord_polar(theta="y") + # Try to remove that to understand how the chart is built initially
   # xlim(c(2, 4)) + # Try to remove that to see how to make a pie chart +
   labs(fill="Cluster",
-       # title="Proportion of Samples",
-       caption="Across every training SSC sample collected for Sentinel-2 Regression.") +
+       title="Number of Training Samples Available For Each Cluster"
+      #  caption="Across every training SSC sample collected for Sentinel-2 Regression."
+       ) +
   # THEMES
   theme_bw() +
   theme(text=element_text(family="Avenir"))
@@ -324,6 +327,13 @@ ggplot(df, aes(x = cluster, fill = cluster)) +
   # theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
         # axis.text.y=element_blank())
   # scale_fill_manual(values=paletteer_dynamic("cartography::multi.pal",6))
+
+ggsave(
+  filename = paste0(wd_figure, "CLUSTER_COUNT.png"),
+  height = 15,
+  width = 15,
+  units = "cm"
+)
 
 ggplot(df, aes(x = cluster, group=1)) +
   stat_summary(aes(y = B1, color = "B1"), fun="median", geom="path") +
@@ -348,12 +358,12 @@ ggplot(df, aes(x = cluster, group=1)) +
 
 ggsave(
   filename = paste0(wd_figure, "CLUSTER_REFLECTANCES.png"),
-  height = 15,
-  width = 15,
-  units = "cm"
+  height = 8,
+  width = 8,
+  units = "in",
+  dpi = 150
 )
 ########################### SAMPLE BASINS  #####################################
-# USE GNIS_ID TO GET RIVER NAME
 
 df <- read.csv(paste0(train_files, "/cluster_regress/RATING_TRAINING_CLUSTERED.csv"))
 station_df <- read.csv(paste0(train_files, "STATIONINFO.csv"))
@@ -464,34 +474,51 @@ hucBasins <- leaflet() %>% addTiles(
 
 # mapshot(hucBasins, url = paste0(wd_figure, "TRAINING_STATIONS.html"))
 saveWidget(hucBasins, file = paste0(wd_figure, "TRAINING_STATIONS.html"))
-############################ SSC STATIONS  #####################################
-df <- read.csv(paste0(train_files, "/cluster_regress/SSC_stations_gte90m.csv"))
+# mapshot(hucBasins, file = paste0(wd_figure, "test_map.png"))
 
-# Joins stations
-station_sites <- left_join(df, station_df, by = ("site_no"="site_no"))
-pad0 <- function(x) {
-  while (nchar(x) < 8) {
-    x <- paste0("0", x)
-  }
-  return(x)
-}
-# Create visualization
-pal <- colorQuantile(
-  palette = "Reds",
-  domain = reproj$samples,
-  n = 4
-)
+# Now generate number of samples per GNIS ID
+gnisSamps <- stations %>% 
+  group_by(GNIS_nm) %>%
+  summarize(
+    totalSamples = sum(samples),
+    totalSites = n()
+  ) %>% arrange(-totalSamples)
 
-leaflet() %>% addTiles(
-  urlTemplate = "http://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}&s=Ga", 
-  attribution = 'Google') %>%
-  addPolygons(
-    data=reproj, 
-    stroke = FALSE,
-    smoothFactor = 0.2,
-    fillOpacity = 1,
-    color = ~pal(samples)
-  ) %>% addLegend(pal = pal, values = basins$samples, group = "circles", position = "topright")
+write.csv(gnisSamps, file = paste0(wd_exports, "SAMPLES_PER_GNIS.csv"), row.names = FALSE)
+
+# Combine upper/lower GNIS IDs
+# Remove "Lower Prefix"
+lowSections <- gnisSamps %>% filter(startsWith(GNIS_nm, "Lower"))
+lowSections$GNIS_nm <- sapply(
+  sapply(strsplit(lowSections$GNIS_nm, split = ' '), 
+  function(x) x[2:length(x)]), paste, collapse = ' '
+  )
+# Remove "Upper prefix"
+highSections <- gnisSamps %>% filter(startsWith(GNIS_nm, "Upper"))
+highSections$GNIS_nm <- sapply(
+  sapply(strsplit(highSections$GNIS_nm, split = ' '), 
+  function(x) x[2:length(x)]), paste, collapse = ' '
+  )
+# Remove "Middle prefix"
+middleSections <- gnisSamps %>% filter(startsWith(GNIS_nm, "Middle"))
+middleSections$GNIS_nm <- sapply(
+  sapply(strsplit(middleSections$GNIS_nm, split = ' '), 
+  function(x) x[2:length(x)]), paste, collapse = ' '
+  )
+mainSections <- gnisSamps %>% 
+filter(!(startsWith(GNIS_nm, "Lower") | startsWith(GNIS_nm, "Upper") | startsWith(GNIS_nm, "Middle")))
+# Combine
+mainStems <- bind_rows(lowSections, highSections, middleSections, mainSections)
+# Remove different parts of the same river (i.e. Colorado-Cummins vs. Colorado-Marble)
+mainStems$GNIS_nm <- sub("-.*", "", mainStems$GNIS_nm)
+mainStemSamps <- mainStems %>% 
+  group_by(GNIS_nm) %>%
+  summarize(
+    totalSamples = sum(totalSamples),
+    totalSites = sum(totalSites)
+  ) %>% arrange(-totalSamples)
+
+write.csv(mainStemSamps, file = paste0(wd_exports, "SAMPLES_PER_RIVER.csv"), row.names = FALSE)
 
 #########################   SSC/Q Sites   ######################################
 
@@ -662,594 +689,96 @@ bm <- format(bm, scientific = FALSE)
 # bm[bm == 0] <- 0
 write.csv(bm, "D:\\valencig\\Thesis\\Make_figs\\band_table.csv")
 
-#########################   Satellite+USGS SSC   ###############################
+######################### Dams and USGS Locations ##############################
 
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "sentinel_day_avg.RData"))
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "SSC_full.RData"))
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "landsat_day_avg.RData"))
-
-SSC_full <- SSC_full %>% filter(channel == "MAIN STEM")
-SSC_full$year_chunk <- cut(as.numeric(format(as.Date(SSC_full$date), "%Y")), 
-                                   seq(from = 1985, to = 2026, by = 5), right=FALSE)
-SSC_full$dist_downstream_km <- as.numeric(SSC_full$dist_downstream_km)
-SSC_full$sscmg_L <- as.numeric(SSC_full$sscmg_L)
-
-ggplot() + 
-  stat_summary(
-    data = landsat_day_avg,
-    aes(x = distance_km, y = SSC_mgL, color='Landsat'),
-    geom = 'line', 
-    fun = 'mean',
-    inherit.aes = FALSE,
-    # show.legend=TRUE,
-    na.rm=T) +
-  stat_summary(
-    data = sentinel_day_avg,
-    aes(x = distance_km, y = SSC_mgL, color='Sentinel-2'),
-    geom = 'line', 
-    fun = 'mean',
-    inherit.aes = FALSE,
-    # show.legend=TRUE,
-    na.rm=T) +
-  stat_summary(
-    data = SSC_full,
-    aes(x = dist_downstream_km, y = sscmg_L, color='1 standard deviation'),
-    geom = 'errorbar',
-    fun.data= mean_sdl,
-    fun.args = list(mult = 1), # mult = # of standard errors
-    # size = 0.5,
-    # width =  30,
-    inherit.aes = FALSE,
-    show.legend=FALSE,
-    na.rm=T) +
-  stat_summary(
-    data = SSC_full,
-    aes(x = dist_downstream_km, y = sscmg_L, color='USGS'),
-    geom = 'point',
-    fun= 'mean',
-    #size = 3,
-    #shape=24,
-    inherit.aes = FALSE,
-    # show.legend=TRUE,
-    # fill = 'purple',
-    na.rm=T) +
-  stat_summary(
-    data = SSC_full,
-    aes(x = dist_downstream_km, y = sscmg_L, color='USGS'),
-    geom = 'point',
-    fun= 'mean',
-    #size = 3,
-    #shape=24,
-    inherit.aes = FALSE,
-    # show.legend=TRUE,
-    na.rm=T) +
-  facet_wrap(~year_chunk) +
-  labs(
-    # title="Suspended Sediment Concentration Along the Chattahoochee River",
-       y="SSC (mg/L)",
-       x="Distance from Buford Dam (km)",
-       color="Data Source",
-       caption="Landsat and Sentinel-2 data averaged to 1 sample per day per 2km.") +
-  coord_cartesian(ylim = c(0, 275)) +
-  # THEMES
-  theme_minimal() +
-  # theme(text=element_text(family="LM Roman 10")) +
-  theme(text=element_text(family="Helvetica")) + 
-  # Remove background grid
-  # theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-  # scale_color_paletteer_d("nord::algoma_forest")
-  scale_color_manual(values=paletteer_dynamic("cartography::multi.pal",4))
-
-#####################   Satellite+USGS 2015-present   ##########################
-
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "sentinel_day_avg.RData"))
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "SSC_full.RData"))
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "landsat_day_avg.RData"))
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "erdc_dams.RData"))
-
-SSC_full <- SSC_full %>% filter(channel == "MAIN STEM")
-SSC_full$year_chunk <- cut(as.numeric(format(as.Date(SSC_full$date), "%Y")), 
-                           seq(from = 1985, to = 2026, by = 5), right=FALSE)
-SSC_full$dist_downstream_km <- as.numeric(SSC_full$dist_downstream_km)
-SSC_full$sscmg_L <- as.numeric(SSC_full$sscmg_L)
-
-# Filter to 2015-present year chunk
-sentinel_day_avg <- sentinel_day_avg %>% filter(year_chunk %in% c("[2015,2020)","[2020,2025)"))
-landsat_day_avg <- landsat_day_avg %>% filter(year_chunk %in% c("[2015,2020)","[2020,2025)"))
-SSC_full <- SSC_full %>% filter(year_chunk %in% c("[2015,2020)","[2020,2025)"))
-
-ggplot() + 
-  stat_summary(
-    data = landsat_day_avg,
-    aes(x = distance_km, y = SSC_mgL, color='Landsat'),
-    geom = 'line', 
-    fun = 'mean',
-    inherit.aes = FALSE,
-    # show.legend=TRUE,
-    na.rm=T) +
-  stat_summary(
-    data = sentinel_day_avg,
-    aes(x = distance_km, y = SSC_mgL, color='Sentinel-2'),
-    geom = 'line', 
-    fun = 'mean',
-    inherit.aes = FALSE,
-    # show.legend=TRUE,
-    na.rm=T) +
-  stat_summary(
-    data = SSC_full,
-    aes(x = dist_downstream_km, y = sscmg_L, color='1 standard deviation'),
-    geom = 'linerange',
-    fun.data= mean_sdl,
-    fun.args = list(mult = 1), # mult = # of standard errors
-    # size = 0.5,
-    # width =  30,
-    inherit.aes = FALSE,
-    # show.legend=FALSE,
-    na.rm=T) +
-  stat_summary(
-    data = SSC_full,
-    aes(x = dist_downstream_km, y = sscmg_L, color='USGS'),
-    geom = 'point',
-    fun= 'mean',
-    #size = 3,
-    #shape=24,
-    inherit.aes = FALSE,
-    # show.legend=TRUE,
-    # fill = 'purple',
-    na.rm=T) +
-  stat_summary(
-    data = SSC_full,
-    aes(x = dist_downstream_km, y = sscmg_L, color='USGS'),
-    geom = 'point',
-    fun= 'mean',
-    #size = 3,
-    #shape=24,
-    inherit.aes = FALSE,
-    # show.legend=TRUE,
-    na.rm=T) +
-  labs(title="Suspended Sediment Concentration Along the Chattahoochee River (2015-present)",
-       y="SSC (mg/L)",
-       x="Distance from Buford Dam (km)",
-       color="Data Source",
-       caption="Landsat and Sentinel-2 data averaged to 1 sample per day per 2km.") +
-  # Label dams 
-  geom_label_repel(data = erdc_dams, 
-                   aes(x=distance_km, label=Dam.Name, y=c(35-12, 30-12, 18, 25-12, 25-7)),
-                   family="LM Roman 10",
-                   nudge_y = 50,
-                   size=3) +
-  coord_cartesian(ylim = c(0, 100)) +
-  # THEMES
-  theme_minimal() +
-  theme(text=element_text(family="LM Roman 10")) +
-  # Remove background grid
-  # theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-  # scale_color_paletteer_d("nord::algoma_forest")
-  scale_color_manual(values=paletteer_dynamic("cartography::multi.pal",4))
-
-######################   Satellite Flux (2015-Present)  ########################
-# Rating curves for flow and flux
-# load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-#                  "landsat_regressed_flux.RData"))
-# load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-#                  "sentinel_regressed_flux.RData"))
-# 
-# landsat_regressed_flux$SSC_flux_MTyr <- 10**landsat_regressed_flux$SSC_flux_MTyr_log10
-# sentinel_regressed_flux$SSC_flux_MTyr <- 10**sentinel_regressed_flux$SSC_flux_MTyr_log10
-# 
-# # First row is null data, delete
-# landsat_regressed_flux <- landsat_regressed_flux[-1,]
-# sentinel_regressed_flux <- sentinel_regressed_flux[-1,]
-
-# Rating curves just for flow
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "landsat_day_avg.RData"))
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "sentinel_day_avg.RData"))
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "erdc_dams.RData"))
-erdc_dams <- erdc_dams[order(erdc_dams$distance_km),]
-landsat_day_avg$SSC_flux_MTyr <- landsat_day_avg$SSC_flux_MTyr*1.1
-sentinel_day_avg$SSC_flux_MTyr <- sentinel_day_avg$SSC_flux_MTyr*1.1
-
-# Filter to 2015-present year chunk
-sentinel_day_avg <- sentinel_day_avg %>% filter(year_chunk %in% c("[2015,2020)","[2020,2025)"))
-landsat_day_avg <- landsat_day_avg %>% filter(year_chunk %in% c("[2015,2020)","[2020,2025)"))
-
-# Increase flux by 10%
-landsat_day_avg$SSC_flux_MTyr <- landsat_day_avg$SSC_flux_MTyr*1.1
-sentinel_day_avg$SSC_flux_MTyr <- sentinel_day_avg$SSC_flux_MTyr*1.1
-
-ggplot() +
-  stat_summary(data = landsat_day_avg,
-               aes(x = distance_km, y = SSC_flux_MTyr, color='Landsat'),
-               geom = 'line',
-               fun = 'mean',
-               inherit.aes = FALSE,
-               # show.legend=TRUE,
-               na.rm=T) +
-  stat_summary(data = sentinel_day_avg,
-               aes(x = distance_km, y = SSC_flux_MTyr, color='Sentinel-2'),
-               geom = 'line',
-               fun = 'mean',
-               inherit.aes = FALSE,
-               # show.legend=TRUE,
-               na.rm=T) +
-  # Label dams 
-  geom_label_repel(data = erdc_dams, 
-                   aes(x=distance_km, label=Dam.Name, y=c(0, 0.05, 0.1, 0.45, 0.8)),
-                   family="LM Roman 10",
-                   nudge_y = .6,
-                   size=3) +
-  labs(
-    # title="Satellite Derived Sediment Flux Along the Chattahoochee River (2015-Present)",
-                                y="Sediment Flux (Mt/yr)",
-                                x="Distance from Buford Dam (km)",
-                                color="Data Source",
-                                caption="Landsat and Sentinel-2 data averaged to 1 sample per day per 2km.\nFlux increased by 10% to account for Bed Load (Trimble, 1977)") +
-  # THEMES
-  theme_minimal() +
-  # theme(text=element_text(family="LM Roman 10")) +
-  theme(text=element_text(family="Helvetica")) + 
-  # Remove background grid
-  # theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-  # scale_color_paletteer_d("nord::algoma_forest")
-  scale_color_manual(values=paletteer_dynamic("cartography::multi.pal",2))
-
-############################   Satellite Flux   ################################
-
-# Rating curves just for flow
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "landsat_day_avg.RData"))
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "sentinel_day_avg.RData"))
-
-# Increase flux by 10%
-landsat_day_avg$SSC_flux_MTyr <- landsat_day_avg$SSC_flux_MTyr*1.1
-sentinel_day_avg$SSC_flux_MTyr <- sentinel_day_avg$SSC_flux_MTyr*1.1
-
-ggplot() +
-  stat_summary(data = landsat_day_avg,
-               aes(x = distance_km, y = SSC_flux_MTyr, color='Landsat'),
-               geom = 'line',
-               fun = 'mean',
-               inherit.aes = FALSE,
-               # show.legend=TRUE,
-               na.rm=T) +
-  stat_summary(data = sentinel_day_avg,
-               aes(x = distance_km, y = SSC_flux_MTyr, color='Sentinel-2'),
-               geom = 'line',
-               fun = 'mean',
-               inherit.aes = FALSE,
-               # show.legend=TRUE,
-               na.rm=T) +
-  # stat_summary(data = landsat_day_avg,
-  #              aes(x = distance_km, y = SSC_flux_MTyr, color='C'),
-  #              geom = 'line',
-  #              fun = 'mean',
-  #              inherit.aes = FALSE,
-  #              # show.legend=TRUE,
-  #              na.rm=T) +
-  # stat_summary(data = sentinel_regressed_flux,
-  #              aes(x = distance_km, y = SSC_flux_MTyr, color='D'),
-  #              geom = 'line',
-  #              fun = 'mean',
-  #              inherit.aes = FALSE,
-  #              # show.legend=TRUE,
-  #              na.rm=T) +
-  facet_wrap(~year_chunk) +
-  labs(
-    title="Satellite Derived Sediment Flux Along the Chattahoochee River",
-       y="Sediment Flux (Mt/yr)",
-       x="Distance from Buford Dam (km)",
-       color="Data Source",
-       caption="Landsat and Sentinel-2 data averaged to 1 sample per day per 2km.\nFlux increased by 10% to account for Bed Load (Trimble, 1977)") +
-  # THEMES
-  theme_minimal() +
-  theme(text=element_text(family="LM Roman 10")) +
-  # Remove background grid
-  # theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-  # scale_color_paletteer_d("nord::algoma_forest")
-  scale_color_manual(values=paletteer_dynamic("cartography::multi.pal",2))
-
-############################## Dam Locations ###################################
-# LOAD ERDC DAMS
-
-# LOAD HERE
-
-# load riverdata
-load("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\riverdata.Rdata")
-nid_dams <- read.csv("D:\\valencig\\Thesis\\Data\\NID_dataset\\NID_raw.csv")
-nid_dams <- na.omit(nid_dams, cols=c('Longitude','Latitude'))
-# Convert to sf object
-nid_dams_sf <- st_as_sf(nid_dams, coords = c("Longitude", "Latitude")) %>% st_set_crs(4326)
-
-# Get dams in the basin
-basin_dams <- st_intersection(nid_dams_sf, riverdata$basin$geometry)
-# Get their rows from nid_dams (geom_point needs lat and lon coordinates)
-dams <- nid_dams %>% filter(NID.ID %in% basin_dams$NID.ID)
-# One small dam (<25 feet) doesnt have a height category
-dams[is.na(dams$NID.Height.Category),]$NID.Height.Category <- "Less than 25 feet"
-dams$NID.Height.Category <- factor(dams$NID.Height.Category, levels=
-                 c("Less than 25 feet",
-                   "51-100 feet",
-                   "Greater than 100 feet"))
-erdc_dams <- dams %>% filter(Owner.Types == "Federal")
-erdc_dams$V_m3 <- erdc_dams$Volume..Cubic.Yards. * 0.7646
-
-# load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 # "erdc_dams.RData"))
-
+# Load ERDC Dams
+raw_dams <- read.csv(paste0(wd_exports, "ERDC_CHATTAHOOCHEE_DAMS.csv"))
+dams <- raw_dams %>% st_as_sf(coords=c("Longitude", "Latitude")) %>% st_set_crs(4326)
+# Load USGS sites
+raw_sites <- read.csv(paste0(wd_exports, "CHATTAHOOCHEE_STATIONINFO.csv"))
+pad0 <- function(x) {
+  while (nchar(x) < 8) {
+    x <- paste0("0", x)
+  }
+  return(x)
+}
+USGS_siteinfo <- readNWISsite(lapply(unique(raw_sites$site_no), pad0))
+sites <- data.frame(
+  site_no = USGS_siteinfo$site_no,
+  lat = as.numeric(USGS_siteinfo$dec_lat_va),
+  lon = as.numeric(USGS_siteinfo$dec_long_va)
+)
+sites <- sites %>% st_as_sf(coords=c("lon", "lat")) %>% st_set_crs(4326)
+# Load Chattahoochee centerline
+centerline <- st_read("C:/Users/ilanv/Desktop/sentinel-ssc/imports/chattahoochee_centerline.kml")
+# Load basin
+riverData <- findNLDI(
+    location = c(-85.03114856911581, 29.84561518630128),
+    nav = "UM",
+    find = c("basin"),
+    distance_km = 2
+    )
+basin <- riverData$basin
 
 # ch_basemap <- get_map(location=c(-85.68610, 29.54263, -83.10837, 35.92789),
 #                       color="color",force=T) # manually input bbox
-ch_basemap <- get_map(location=c(-85.68610, 29.54263, -83.10837, 34.9),
-                      color="color",force=T) # manually input bbox
+register_google("AIzaSyBipmtLXjlhfoLYiIgQmJKryq6BcP8gyiY")
+ch_basemap <- get_map(
+  # location=c(-85.68610, 29.54263, -83.10837, 34.9),
+  "chattahoochee",
+  zoom = 7, scale = "auto",
+  maptype = "satellite",
+  source = "google") # manually input bbox
 
 # All dams
 ggmap(ch_basemap) +
-  geom_sf(data = riverdata$basin, fill=NA, inherit.aes = FALSE) +
-  geom_sf(data = riverdata$UM_flowlines, color="#1067b3", inherit.aes = FALSE) +
-  geom_point(data = dams, aes(x=Longitude, y=Latitude, color=NID.Height.Category), 
-             shape=17,
-             inherit.aes = FALSE,
-             size = 2) +
-  geom_label_repel(data = erdc_dams, aes(x=Longitude, y=Latitude,
-                label = Dam.Name),
-                size=2,
-                nudge_y = 0.25,
-                nudge_x = 0.5,
-                # family= "LM Roman 10"
-                family = "Helvetica"
-                ) +
-  labs(color="NID Height Category",
-       caption="The outline delineates the Chattahoochee\n-Apalachicola river basin. Labeled dams are \noperated by the US Army Corps of Engineers.") +
+  geom_sf(data = basin, color = "Red", fill=NA, inherit.aes = FALSE) +
+  geom_sf(data = centerline, color="Blue", inherit.aes = FALSE) +
+  geom_sf(data = dams, aes(size = V_m3, color = V_m3, shape="Dam"),
+    inherit.aes = FALSE) +
+  geom_sf(data = sites, aes(shape = "USGS Site"),
+    color = "green", 
+    inherit.aes = FALSE) +
+  geom_label_repel(data = raw_dams, aes(x=Longitude, y=Latitude,
+    label = Dam.Name),
+    size=3,
+    nudge_y = 0.25,
+    nudge_x = 0.5,
+    inherit.aes = FALSE
+    # family= "LM Roman 10"
+    # family = "Helvetica"
+    ) +
+  # labs(color="NID Height Category",
+      #  caption="The outline delineates the Chattahoochee\n-Apalachicola river basin. Labeled dams are \noperated by the US Army Corps of Engineers.") +
   # THEMES
   theme_bw() +
-  # theme(text=element_text(family="LM Roman 10")) +
-  theme(text=element_text(family="Helvetica")) +
-  # Remove background grid
-  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-  # for no-axis labels
   theme(
-    axis.title.x=element_blank(),
-    axis.ticks.x=element_blank(),
-    axis.text.x=element_blank(),
-    axis.title.y=element_blank(),
-    axis.ticks.y=element_blank(),
-    axis.text.y=element_blank()
-  ) +
-  # scale_color_manual(values=paletteer_dynamic("cartography::multi.pal",3))
-  # scale_color_paletteer_d("nord::lumina",-1)
-  scale_color_manual(values=paletteer_dynamic("cartography::wine.pal",3))
-
-# Only ERDC Dams
-ggmap(ch_basemap) +
-  geom_sf(data = riverdata$basin, fill=NA, inherit.aes = FALSE) +
-  geom_sf(data = riverdata$UM_flowlines, color="#1067b3", inherit.aes = FALSE) +
-  geom_point(data = erdc_dams, aes(x=Longitude, y=Latitude, color=V_m3, size=V_m3), 
-             shape=17,
-             inherit.aes = FALSE) +
-  geom_label_repel(data = erdc_dams, aes(x=Longitude, y=Latitude,
-                                        label = Dam.Name),
-                  size=3,
-                  nudge_y = 0.2,
-                  nudge_x = 0.5,
-                  family= "LM Roman 10") +
-  labs(color="Volume in Cubic Meters",
-       caption="The outline delineates the Chattahoochee/Apalachicola river basin.\nThe upstream extent of the study transect starts at Buford Dam, GA.") +
-  scale_size(guide="none") +
-  # THEMES
-  theme_bw() +
-  theme(text=element_text(family="LM Roman 10")) +
-  # Remove background grid
-  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-  # for no-axis labels
-  theme(
-    axis.title.x=element_blank(),
-    axis.ticks.x=element_blank(),
-    axis.text.x=element_blank(),
-    axis.title.y=element_blank(),
-    axis.ticks.y=element_blank(),
-    axis.text.y=element_blank()
-  ) +
+    legend.position = c(.95, .95),
+    legend.justification = c("right", "top"),
+    legend.box.background = element_rect(color = "black", size=0.55),
+    legend.box.margin = margin(6, 6, 6, 6)) +
+  guides(size = "none") +
+  # scale_color_distiller(palette = "YlOrBr",
+    # limits = c(0, 1000000, 2000000, 3000000),
+    # labels = c(TeX("0 x $10^6$"), TeX("1 x $10^6$"), TeX("2 x $10^6$"), TeX("3 x $10^6$"))) +
+  scale_color_continuous(
+    type = "gradient",
+    low = "#FFE5BD",
+    high = "#FB9800",
+    breaks = c(0, 1000000, 2000000, 3000000),
+    labels = c(TeX("0 x $10^6$"), TeX("1 x $10^6$"), TeX("2 x $10^6$"), TeX("3 x $10^6$"))) +
   # scale_color_manual(values=paletteer_dynamic("cartography::multi.pal",3))
   # scale_color_paletteer_d("nord::lumina",-1)
   # scale_color_manual(values=paletteer_dynamic("cartography::wine.pal",3))
-  scale_color_paletteer_c("pals::ocean.tempo")
-
-############################### Data Density ###################################
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "ssc_day_avg.RData"))
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "landsat_mouth.RData"))
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "sentinel_mouth.RData"))
-
-# Add year to ssc_day_avg 
-ssc_day_avg$year <- format(as.Date(ssc_day_avg$date), "%Y")
-
-Samples <- data.frame(Source = c("USGS", "Landsat","Sentinel-2"),
-                      Samples = c(nrow(ssc_day_avg), nrow(landsat_mouth), nrow(sentinel_mouth)))
-
-ggplot(Samples, aes(x=Source, y=Samples, fill=Source)) +
-  geom_bar(stat="identity", color="black") +
-  geom_text(aes(label=Samples), vjust=-0.2) +
-  theme_minimal() +
   labs(
-    # title="Number of Samples at the Mouth of the Chattahoochee (1985-2023)",
-       x = "",
-       caption = "Samples are taken at site USGS-02359170: APALACHICOLA RIVER NR SUMATRA, FLA.\nFor Landsat/Sentinel, the mouth of the river is defined as the last 10km of the transect.") +
-  geom_label(data = data.frame(mult=c("≈ 21.6x USGS","≈ 4x USGS"), 
-                               Source = c("Landsat", "Sentinel-2")),
-             aes(y=c(6000, 700),label=mult),
-             label.size = 0,
-             show.legend = F
-             ) +
-  # THEMES
-  theme_bw() +
-  # theme(text=element_text(family="LM Roman 10")) +
-  theme(text=element_text(family="Helvetica")) +
-  # Remove background grid
-  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-  # scale_color_manual(values=paletteer_dynamic("cartography::multi.pal",3))
-  # scale_fill_paletteer_d("nord::lumina",-1)
-  scale_fill_manual(values=paletteer_dynamic("cartography::harmo.pal",3))
-  # scale_fill_paletteer_c("pals::ocean.tempo")
+    x = "Lon", y = "Lat", title = "Chattahoochee-Apalachicola Basin",
+    color = "Reservoir Volume (m^3)", shape = "Feature"
+  )
 
-
-############################## Flux at Mouth ###################################
-
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "ssc_day_avg.RData"))
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "landsat_mouth.RData"))
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "sentinel_mouth.RData"))
-# Increase flux by 10%
-landsat_mouth$SSC_flux_MTyr <- landsat_mouth$SSC_flux_MTyr*1.1
-sentinel_mouth$SSC_flux_MTyr <- sentinel_mouth$SSC_flux_MTyr*1.1
-ssc_day_avg$SSC_flux_MTyr <- ssc_day_avg$SSC_flux_MTyr*1.1
-
-# Total Data Density
-ggplot(ssc_day_avg, aes(x=year_chunk, y=SSC_flux_MTyr, color="USGS")) +
-  coord_cartesian(ylim=c(0,5)) +
-  # coord_cartesian(ylim = c(0,as.numeric(ylims_landsat)[2]*1.10)) +
-  # geom_violin(scale="count", aes(fill = year_chunk)) +
-  geom_boxplot(width=0.2, outlier.shape=NA, position= position_nudge(x=-.13)) +
-  geom_boxplot(data=landsat_mouth, aes(color="Landsat"), width=0.2, outlier.shape=NA, 
-               position= position_nudge(x=+.13)) +
-  geom_boxplot(data=sentinel_mouth, aes(color="Sentinel"), width=0.2, outlier.shape=NA, 
-               position= position_nudge(x=+.39)) +
-  # Add labels for amount of observations
-  # geom_text(data = landsat_flux, aes(label=count), 
-  #           position=position_dodge(width=1.0)) +
-  # scale_color_manual(values = c('#9CDB79', '#999999','#E69F00')) +
-  labs(
-    # title="Sediment Flux at the Mouth of the Chattahoochee",
-       y="Sediment Flux (Mt/yr)",
-       x="",
-       color="Source",
-       caption="USGS samples are taken at site USGS-02359170: APALACHICOLA RIVER NR SUMATRA, FLA.\nFor Landsat/Sentinel, the mouth of the river is defined as the last 10km of river.\nFlux increased by 10% to account for bed load (Trimble, 1977).") +
-  # THEMES
-  theme_bw() +
-  # theme(text=element_text(family="LM Roman 10")) +
-  theme(text=element_text(family="Helvetica")) +
-  # Remove background grid
-  # theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-  # scale_color_manual(values=paletteer_dynamic("cartography::multi.pal",3))
-  # scale_fill_paletteer_d("nord::lumina",-1)
-  scale_color_manual(values=paletteer_dynamic("cartography::multi.pal",3))
-
-############################# Flux over Time ###################################
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "ssc_day_avg.RData"))
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "landsat_mouth.RData"))
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "sentinel_mouth.RData"))
-load(file=paste0("D:\\valencig\\Thesis\\USGS_dataquery\\1985-01-01_2023-01-01\\variables\\",
-                 "riverdata.RData"))
-basin_area <- st_area(riverdata$basin) %>% set_units(km^2)
-### PRE-ANTHROPOGENIC ###
-
-# From octopusdata.org 
-# Octupus ID: S156WTS010 Sample ID: SAP66
-Be10E <- 9.15 %>% set_units(mm/kyr) %>% set_units(m/yr)
-# Be10dE <- 2.15 %>% set_units(mm/kyr) %>% set_units(m/yr)
-
-# Get total flux over one year (using density of quartz, 2.648 g/cm^3) --> switched to 1440 from Trimble 1977
-Be10flux <- (Be10E * set_units(basin_area, m^2) * set_units(1440, kg/m^3)) %>% set_units(Mt/yr)
-# Be10dflux <- (Be10dE * set_units(basin_area, m^2) * set_units(1440, kg/m^3)) %>% set_units(Mt/yr)
-
-### PRE-DAM ###
-
-# From Trimble (1977), sourced originally from Dole and Stabler (1909)
-# They used assumed bulk density of 1440 kg/m^3 
-# Included 10% additional to account for Bed Load (B.L/)
-Tflux <- ((set_units(0.057, mm/yr) %>% set_units(m/yr)) 
-          * set_units(basin_area, m^2) 
-          * set_units(1440, kg/m^3)) %>% set_units(Mt/yr)
-
-### POST-DAM ###
-
-#USGS in-situ data (at station closest to mouth - USGS-02359170)
-# Increase by 10% to account for bed load
-USGSflux <- mean(ssc_day_avg$SSC_flux_MTyr * 1.1) %>% set_units(Mt/yr)
-# USGSdflux <- sd(ssc_day_avg$SSC_flux_MTyr * 1.1) %>% set_units(Mt/yr)
-# USGSQ <- mean(ssc_day_avg$flow_m3s) %>% set_units(m^3/s)
-# USGSdQ <- sd(ssc_day_avg$flow_m3s) %>% set_units(m^3/s)
-# USGSDisYield <- (USGSflux / basin_area) %>% set_units(t/(km^2*yr))
-# USGSSSC <- mean(ssc_day_avg$sscmg_L) %>% set_units(mg/L)
-# USGSdSSC <- sd(ssc_day_avg$sscmg_L) %>% set_units(mg/L)
-# USGSsamp <- nrow(ssc_day_avg)
-
-# Landsat Data (use last 10 km of the river)
-# Increase by 10% to account for bed load
-Landsatflux <- mean(landsat_mouth$SSC_flux_MTyr * 1.1, na.rm=T) %>% set_units(Mt/yr)
-# Landsatdflux <- sd(landsat_mouth$SSC_flux_MTyr * 1.1, na.rm=T) %>% set_units(Mt/yr)
-# LandsatQ <- mean(landsat_mouth$flow_m3s, na.rm=T) %>% set_units(m^3/s)
-# LandsatdQ <- sd(landsat_mouth$flow_m3s, na.rm=T) %>% set_units(m^3/s)
-# LandsatSSC <- mean(landsat_mouth$SSC_mgL, na.rm=T) %>% set_units(mg/L)
-# LandsatdSSC <- mean(landsat_mouth$SSC_mgL, na.rm=T) %>% set_units(mg/L)
-# Landsatsamp <- nrow(landsat_mouth)
-# To use rating curve derived data uncomment below
-# Landsatflux <- mean(mouth_q$rating_flux_landsat * 1.1, na.rm=T) %>% set_units(Mt/yr)
-# Landsatflux5 <- mean(mouth_q[mouth_q$year_chunk %in% unique(sentinel_mouth$year_chunk),]$rating_flux_landsat * 1.1, na.rm=T) %>% set_units(Mt/yr)
-# Landsatdflux <- sd(mouth_q$rating_flux_landsat * 1.1, na.rm=T) %>% set_units(Mt/yr)
-# LandsatQ <- mean(mouth_q$flow_m3s, na.rm=T) %>% set_units(m^3/s)
-# LandsatdQ <- sd(mouth_q$flow_m3s, na.rm=T) %>% set_units(m^3/s)
-
-
-# Sentinel Data (use last 10 km of the river)
-# Increase by 10% to account for bed load
-Sentinelflux <- mean(sentinel_mouth$SSC_flux_MTyr * 1.1, na.rm=T) %>% set_units(Mt/yr)
-# Sentineldflux <- sd(sentinel_mouth$SSC_flux_MTyr * 1.1, na.rm=T) %>% set_units(Mt/yr)
-# SentinelQ <- mean(sentinel_mouth$flow_m3s, na.rm=T) %>% set_units(m^3/s)
-# SentineldQ <- sd(sentinel_mouth$flow_m3s, na.rm=T) %>% set_units(m^3/s)
-# SentinelSSC <- mean(sentinel_mouth$SSC_mgL, na.rm=T) %>% set_units(mg/L)
-# SentineldSSC <- mean(sentinel_mouth$SSC_mgL, na.rm=T) %>% set_units(mg/L)
-# Sentinelsamp <- nrow(sentinel_mouth)
-
-# Data from Milliman et. al
-# Increase by 10% to account for bed load
-# MillimanQ <- (set_units(22, km^3/yr)) %>% set_units(m^3/s) # Average discharge
-MillimanTDS <- set_units(1.1 * 1.1, Mt/yr) # TDS load
-# MillimanDisYield <- set_units(0.021*1000, t/(km^2*yr)) # They use basin area of 52,000 km^2 but use 52 as divisor, need to multiply by 1,000
-# MillimanSSC <- set_units(50, mg/L) # Average SSC concentration
-
-# Flux Dataframe
-Timeflux <- data.frame(source=c("Reusser (2015)", "Trimble (1977)", "USGS*", "Milliman (2013)*", "Landsat (Dethier, 2020)*","Sentinel-2**"),
-                       flux=c(Be10flux, Tflux, USGSflux, MillimanTDS, Landsatflux, Sentinelflux),
-                       period=c("Pre-Colonial", "Pre-Dam", "Post-Dam", "Post-Dam", "Post-Dam","Post-Dam"))
-Timeflux$period <- factor(Timeflux$period, levels = c("Pre-Colonial", "Pre-Dam", "Post-Dam"))
-Timeflux$source <- factor(Timeflux$source, levels = Timeflux$source)
-
-ggplot(Timeflux, aes(x=source, y=flux, fill=period)) +
-  geom_bar(stat="identity", color="black") +
-  geom_text(aes(label=sprintf("%0.2f", round(flux, digits = 2))), vjust=-0.2) +
-  theme_minimal() +
-  theme(legend.position = "bottom") +
-  labs(
-    # title="Sediment Flux in the Chattahoochee Basin",
-       x = "",
-       y = "Sediment Flux",
-       period  = "Time Period",
-       caption = "Using bulk density of 1440 kg per cubic meter (Trimble, 1977) and assuming bed load accounts for an extra 10% across SSC derived flux.\n *Defined as 1985-present.\n**Data only available from 2018-2022.") +
-  # THEMES
-  theme_bw() +
-  # theme(text=element_text(family="LM Roman 10")) +
-  theme(text=element_text(family="Helvetica")) +
-  # Remove background grid
-  # theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-  # scale_color_manual(values=paletteer_dynamic("cartography::multi.pal",3))
-  # scale_fill_paletteer_d("nord::lumina",-1)
-  # scale_fill_manual(values=paletteer_dynamic("cartography::multi.pal",3))
-  scale_fill_manual(values=c('#999999','#E69F00','#9CDB79'))
+ggsave(
+  filename = paste0(wd_figure, "BASIN.png"),
+  width = 8,
+  height = 8,
+  units = "in",
+  dpi = 150
+)

@@ -2326,7 +2326,7 @@ trapping_eff <- function(dist, res_start, years,  df){
   # Don't look at dist --> where dam is
   pre <<- df %>% filter(distance_km >= last_dist & distance_km <= res_start) %>% filter(year_chunk == years)
   post <<- df %>% filter(distance_km <= next_dist & distance_km > dist) %>% filter(year_chunk == years)
-  pre_ssc <- mean(pre$SSC_mgL, na.rm=T)
+  pre_ssc <- mean(prae$SSC_mgL, na.rm=T)
   post_ssc <- mean(post$SSC_mgL, na.rm=T)
   dssc <- post_ssc-pre_ssc
   te <- -dssc / pre_ssc
