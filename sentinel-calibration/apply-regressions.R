@@ -59,9 +59,10 @@ library(dict)
 library(clue)
 
 ### SET PARAMETERS ###
-file2Open <- "C:/Users/ilanv/Desktop/sentinel-ssc/imports/sentinel_2_SR__transect_2017_2022_20scale.csv"
+# file2Open <- "C:/Users/ilanv/Desktop/sentinel-ssc/imports/sentinel_2_SR__transect_2017_2022_20scale.csv"
+file2Open <- "C:/Users/ilanv/Desktop/sentinel-ssc/flint_river/sentinel_flint_2017_2024.csv"
 clusters2Open <- "C:/Users/ilanv/Desktop/sentinel-ssc/exports/cluster_regress/"
-saveName <- "SENTINEL2_20m_SSC.csv"
+saveName <- "FLINT_20m_SSC.csv"
 
 # Need to alter band regressors to match regression used
 load(file = paste0(clusters2Open, "cluster_regressors.RData"))
