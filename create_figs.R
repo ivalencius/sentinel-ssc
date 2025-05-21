@@ -637,3 +637,39 @@ ggplot(chatM, aes(group=dist_group, x=dist_group, y=PRED_SSC_MGL)) +
   #theme(text = element_text(family = "JetBrains Mono NL"))
 
 ggsave(filename=paste0(wd_exports, "chat_boxplot.png"), height = 7, width = 10, units = "in", dpi=300)
+
+# Quick estimates of trapping efficiency
+# ratio of minimum median SSC downstream of the dam over maximum median SSC upstream of each reservoir.
+# In downstream order: Buford Dam (59 m tall), West Point Dam (37 m), Walter F. George Lock and Dam (31 m), George W. Andrews Lock and Dam (8 m), and Jim Woodruff Lock and Dam (14 m)
+print(dams$distance_km %>% sort())
+medians <- chatM %>% group_by(dist_group) %>% summarise(median_value = median(PRED_SSC_MGL))
+# masks are for region before dam
+west_pt_mask <- (medians$dist_group > 0) & (medians$dist_group < 240)
+walter_mask <- (medians$dist_group > 240) & (medians$dist_group < 432)
+george_mask <- (medians$dist_group > 432) & (medians$dist_group < 478)
+woodruff_mask <- (medians$dist_group > 478) & (medians$dist_group < 552)
+after_woodruff <- medians$dist_group > 552
+# Clip to dams
+west_pt <- medians[west_pt_mask, ]$median_value
+walter <- medians[walter_mask, ]$median_value
+george <- medians[george_mask, ]$median_value
+woodruff <- medians[woodruff_mask, ]$median_value
+after_woodruff <- medians[after_woodruff,]$median_value
+# Now get trapping efficiencies
+print(c('West Point TE', (max(west_pt)-min(walter))/max(west_pt)*100))
+print(c('Walter TE', (max(walter)-min(george))/max(walter)*100))
+print(c('George TE', (max(george)-min(woodruff))/max(george)*100))
+print(c('Woodruff TE', (max(woodruff)-min(after_woodruff))/max(woodruff)*10))
+# West point 
+print(c('Max median ssc before dam (West Pt)', max(west_pt)))
+print(c('Min median ssc after dam (West Pt)', min(walter)))
+# Walter
+print(c('Max median ssc before dam (Walter)', max(walter)))
+print(c('Min median ssc after dam (Walter)', min(george)))
+# George
+print(c('Max median ssc before dam (George)', max(george)))
+print(c('Min median ssc after dam (George)', min(woodruff)))
+# Woodruff
+print(c('Max median ssc before dam (Woodruff)', max(woodruff)))
+print(c('Min median ssc after dam (Woodruff)', min(after_woodruff)))
+      
