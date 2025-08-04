@@ -266,7 +266,7 @@ rating_curve <- ggplot(insitu_rating_data, aes(x = LOG10_Q_M3S, y = LOG10_SSC_FL
   labs(
     x = "River Discharge [log10(m^3/s)]",
     y = "Suspended Sediment Flux [log10(Mt/yr)]",
-    title = paste0("USGS Station ", station_sel, " (R^2=", ex_R2,")"))
+    title = bquote("USGS Station " * .(station_sel) * " (R"^2*" = " * .(ex_R2) * ")"))
   #theme(text = element_text(family = "JetBrains Mono NL"))
 
 ggsave(
