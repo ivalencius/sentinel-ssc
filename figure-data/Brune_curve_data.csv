@@ -1,0 +1,4 @@
+,dam_name,lake_name,sentinel2_TE_flux,sentinel2_TE_SSC,volume_m3,Q_m3yr,V_star
+0,West Point Dam,West Point Lake,72.8,77.4,746255400.0,4210691487.06816,0.1772287051406861
+1,Walter F. George Lock and Dam,Eufaula,61.7,63.6,1091101870.56,8181001817.5104,0.13337020268405692
+2,George W. Andrews Lock and Dam,George W. Andrews Lake,13.1,4.2,22424666.4,9621501536.77056,0.0023306826189550037
