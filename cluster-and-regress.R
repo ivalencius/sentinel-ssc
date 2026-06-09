@@ -1,7 +1,4 @@
 ### LIBRARY IMPORTS ###
-
-# Trying alpha = 0.75
-
 library(ggplot2)
 library(data.table)
 library(matrixStats)
@@ -89,7 +86,7 @@ cols2Go <- c(
 
 gee_raw <- read.csv(paste0(wd_gee, "REFLECTANCE-SSC-2017_2024_60m_drainage-2000km2.csv"))
 stations <- read.csv(paste0(wd_gee, "VALID_SITES_width-60m_drainage-2000km2.csv")) %>%
-select("MERIT_WIDTH_M", "GRWL_WIDTH_M","DRAINAGE_KM2", "STATION_NM", "HUC", 
+dplyr::select("MERIT_WIDTH_M", "GRWL_WIDTH_M","DRAINAGE_KM2", "STATION_NM", "HUC", 
 "SITE_TYPE", "SITE_NO")
 stations$SITE_NO <- as.character(stations$SITE_NO)
 stations$SITE_NO <- unlist(lapply(stations$SITE_NO, pad0))
@@ -235,10 +232,10 @@ for (lag_day in lag_days) {
   # "DATE"        "PRODUCT_ID"  "SENSOR" "STATION_NM"  "SITE_TYPE"  
   # "AGENCY_CD"   "RATINGCURVE"
   rHClean <- left_join(rHClean, rHMerge %>% 
-  select(SITE_NO, STATION_NM, SAMPLE_DT, PRODUCT_ID, SITE_TYPE, RATINGCURVE, SOURCE) 
+  dplyr::select(SITE_NO, STATION_NM, SAMPLE_DT, PRODUCT_ID, SITE_TYPE, RATINGCURVE, SOURCE) 
   %>% distinct(), by = c("SITE_NO", "SAMPLE_DT"))
   iHClean <- left_join(iHClean, iHarmonized %>% 
-  select(SITE_NO, STATION_NM, SAMPLE_DT, PRODUCT_ID, SITE_TYPE, RATINGCURVE, SOURCE) 
+  dplyr::select(SITE_NO, STATION_NM, SAMPLE_DT, PRODUCT_ID, SITE_TYPE, RATINGCURVE, SOURCE) 
   %>% distinct(), by = c("SITE_NO", "SAMPLE_DT"))
 
   # Clean up fractional lag days
@@ -262,7 +259,7 @@ for (lag_day in lag_days) {
 
 # Now just cluster based on landsat clusters
 # site_clusters <- rSSC %>% filter(SOURCE == "LANDSAT") %>% 
-# select(SITE_NO, LANDSAT_CLUSTER) %>% group_by(SITE_NO) %>% 
+# dplyr::select(SITE_NO, LANDSAT_CLUSTER) %>% group_by(SITE_NO) %>% 
 # summarise(CLUSTER = unique(LANDSAT_CLUSTER)) %>% ungroup()
 # switch <- c("RATING", "INSITU")
 # for (lag_day in lag_days) {
@@ -273,7 +270,7 @@ for (lag_day in lag_days) {
 #     dataClustered <- left_join(data, site_clusters, by = "SITE_NO")
 #     # Create 25% holdout set on a per-cluster basis
 #     set.seed(23)
-#     # rToReg <- subset(data, select = -c(B2_count))
+#     # rToReg <- subset(data, dplyr::select = -c(B2_count))
 #     holdout25 <- dataClustered %>%
 #       group_by(CLUSTER) %>%
 #       sample_frac(0.25) %>%
@@ -341,7 +338,7 @@ for (lag_day in lag_days) {
     )
     # Create 25% holdout set on a per-cluster basis
     set.seed(23)
-    # rToReg <- subset(data, select = -c(B2_count))
+    # rToReg <- subset(data, dplyr::select = -c(B2_count))
     holdout25 <- dataClustered %>%
       group_by(CLUSTER) %>%
       sample_frac(0.25) %>%
@@ -373,7 +370,7 @@ clust_sanity_check <- function(lag_oi, type_oi) {
 
   viz_df <- as.data.table(test_df)[
     , ":="(cluster_sel = CLUSTER,
-      # # Categorize SSC value as one of selected categories
+      # # Categorize SSC value as one of dplyr::selected categories
       ssc_category = cut(10^LOG10_SSC_MGL,
         breaks = ssc_categories,
         labels = ssc_category_labels
@@ -399,8 +396,7 @@ clust_sanity_check <- function(lag_oi, type_oi) {
     labs(
       y = "SSC range (mg/L)",
       x = "River grouping"
-    ) +
-    theme(text = element_text(family = "JetBrains Mono NL"))
+    )
 }
 
 # Generate cluster sanity check figures
@@ -542,7 +538,7 @@ gen_reg <- function(lag_day, type) {
   # If any band has a 0 value, it will create infinite values in the data, need to remove
   # Only check complete cases over the bands and SSC
   dataFinite <- dataPrepped[complete.cases(dataPrepped %>% 
-  select(starts_with("B") | LOG10_SSC_MGL))]
+  dplyr::select(starts_with("B") | LOG10_SSC_MGL))]
   
 
   # Extract holdout and training data
@@ -566,7 +562,7 @@ gen_reg <- function(lag_day, type) {
   )
 
   regVars <- data.frame(
-    Variable = c("Intercept", colnames(train75 %>% select(starts_with("B") 
+    Variable = c("Intercept", colnames(train75 %>% dplyr::select(starts_with("B") 
     & -starts_with("B2_COUNT")))))
 
   # Generate regression for all clusters
@@ -576,7 +572,7 @@ gen_reg <- function(lag_day, type) {
     holdout_data <- holdout25 %>% filter(CLUSTER == clust)
     # Extract training data
     glm_y <- as.matrix(lm_data$LOG10_SSC_MGL)
-    glm_x <- as.matrix(lm_data %>% select(starts_with("B") & -starts_with("B2_COUNT")))
+    glm_x <- as.matrix(lm_data %>% dplyr::select(starts_with("B") & -starts_with("B2_COUNT")))
 
     ssc_lm <- cv.glmnet(x = glm_x, y = glm_y, family = "gaussian", alpha = 0.5,
     type.measure = "mse", nfolds = 10, nlambda = 100)
@@ -589,16 +585,16 @@ gen_reg <- function(lag_day, type) {
     plot(ssc_lm)
     dev.off()
 
-    # Select model within one standard error with min coefficients --> No longer do this
-    cv.opt <- coef(ssc_lm, s = "lambda.min")
+    # dplyr::select model within one standard error with min coefficients 
+    cv.opt <- coef(ssc_lm, s = "lambda.1se")
     # cv.opt <- coef(ssc_lm, s = "lambda.1se")
     regVars[, paste0("CLUSTER_", clust)] <- as.numeric(cv.opt)
 
     # Predict on holdout data
     glm_pred <- predict(ssc_lm,
-    newx = as.matrix(holdout_data %>% select(starts_with("B") & -starts_with("B2_COUNT"))),
-    # s = "lambda.1se"
-    s = "lambda.min"
+    newx = as.matrix(holdout_data %>% dplyr::select(starts_with("B") & -starts_with("B2_COUNT"))),
+     s = "lambda.1se"
+    # s = "lambda.min"
     )
 
     holdout_data$PRED_LOG10_SSC_MGL <- as.numeric(glm_pred)
@@ -646,14 +642,13 @@ gen_reg <- function(lag_day, type) {
       annotation_logticks() +
       labs(
         shape = "Data Source",
-        title = paste0("Maximum Lead/Lag Time: ±", lag_day, " days | Source: ", type, " | Cluster ", clust),
-        subtitle = paste0("Relative Error: ", round(RE, 4)),
+        title = paste0("Maximum Lead/Lag Time: ", lag_day, " days | Source: ", type, " | Cluster ", clust),
+        subtitle = paste0("Relative Error: ", round(RE, 2)),
         x = 'In-Situ SSC (mg/L)',
-        y = 'Satellite Estimated SSC (mg/L)') +
-    theme(text = element_text(family = "JetBrains Mono NL"))
+        y = 'Satellite Estimated SSC (mg/L)')
     ggsave(
       filename = paste0(reg_dir, "cluster_", clust, "_regression_plot.png"),
-      width = 10, height = 10, units = "in", dpi = 300)
+      width = 6, height = 6, units = "in", dpi = 300)
       }, error = function(e) {
       print(paste0("Error in cluster: ", clust, " -> most likely intercept only variable"))},
       warning = function(w) {
@@ -684,14 +679,13 @@ gen_reg <- function(lag_day, type) {
         annotation_logticks() +
         labs(
           shape = "Data Source",
-          title = paste0("Maximum Lead/Lag Time: ±", lag_day, " days | Source: ", type, " | Cluster ", clust),
-          subtitle = paste0("Relative Error: ", round(RE, 4)),
+          title = paste0("Maximum Lead/Lag Time: ", lag_day, " days | Source: ", type, " | Cluster ", clust),
+          subtitle = paste0("Relative Error: ", round(RE, 2)),
           x = 'In-Situ SSC (mg/L)',
-          y = 'Satellite Estimated SSC (mg/L)') +
-      theme(text = element_text(family = "JetBrains Mono NL"))
+          y = 'Satellite Estimated SSC (mg/L)')
       ggsave(
         filename = paste0(reg_dir, "cluster_", clust, "_regression_plot.png"),
-        width = 10, height = 10, units = "in", dpi = 300)
+        width = 6, height = 6, units = "in", dpi = 300)
     })
 
     # Add predicted data to holdoutData
@@ -701,7 +695,7 @@ gen_reg <- function(lag_day, type) {
   write.table(regVars, file = paste0(reg_dir, "regression_variables.csv"), sep = ",", row.names = FALSE)
 
   # Need to remove any infinite values (maybe 1)
-  holdout25 <- holdout25[complete.cases(holdout25 %>% select(starts_with("B") & -starts_with("B2_COUNT"))),]
+  holdout25 <- holdout25[complete.cases(holdout25 %>% dplyr::select(starts_with("B") & -starts_with("B2_COUNT"))),]
 
   # Calculate errors
   RMSE <- rmse(10^holdout25$PRED_LOG10_SSC_MGL, 10^holdout25$LOG10_SSC_MGL, na.rm = TRUE)
@@ -747,14 +741,13 @@ gen_reg <- function(lag_day, type) {
     annotation_logticks() +
     labs(
       shape = "Data Source",
-      title = paste0("Maximum Lead/Lag Time: ±", lag_day, " days | Source: ", type),
-      subtitle = paste0("Relative Error: ", round(RE, 4)),
+      title = paste0("Maximum Lead/Lag Time: ", lag_day, " days | Source: ", type),
+      subtitle = paste0("Relative Error: ", round(RE, 2)),
       x = 'In-Situ SSC (mg/L)',
-      y = 'Satellite Estimated SSC (mg/L)') +
-  theme(text = element_text(family = "JetBrains Mono NL"))
+      y = 'Satellite Estimated SSC (mg/L)')
 
   ggsave(filename = paste0(reg_dir, "All_cluster_regression_plot.png"),
-    width = 10, height = 10, units = "in", dpi = 300)
+    width = 6, height = 6, units = "in", dpi = 300)
 
   # Save individual station calibration regression plots
   station_dir <- paste0(reg_dir, "station_calibration_plots/")
@@ -788,14 +781,13 @@ gen_reg <- function(lag_day, type) {
     labs(
       shape = "Data Source",
       color = "|Lead/Lag Days|",
-      title = paste0("Maximum Lead/Lag Time: ±", lag_day, " days | Source: ", type),
-      subtitle = paste0("Relative Error: ", round(RE, 4)),
+      title = paste0("Maximum Lead/Lag Time: ", lag_day, " days | Source: ", type),
+      subtitle = paste0("Relative Error: ", round(RE, 2)),
       x = 'In-Situ SSC (mg/L)',
-      y = 'Satellite Estimated SSC (mg/L)') +
-    theme(text = element_text(family = "JetBrains Mono NL"))
-  
+      y = 'Satellite Estimated SSC (mg/L)')
+
     ggsave(filename = paste0(station_dir, "indiv_calib_", site, ".png"),
-    width = 10, height = 10, units = "in", dpi = 300)
+    width = 6, height = 6, units = "in", dpi = 300)
   }
 }
 

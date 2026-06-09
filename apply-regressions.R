@@ -123,14 +123,15 @@ setnames(cluster_dist, old=colnames(cluster_dist), new=toupper(colnames(cluster_
 
 # Quick plot to ensure majority cluster is clear
 hist(cluster_dist$CLUSTER)
-
+cluster_dist %>% 
+  count(CLUSTER)
 # Plot cluster over distance
 ggplot(cluster_dist, aes(x=DISTANCE_KM, y=CLUSTER)) +
 geom_line()
 
 # Apply majority cluster to the whole dataset
-# sentinel$cluster <- majCluster
-sentinel <- left_join(sentinel, cluster_dist, by = "DISTANCE_KM")
+sentinel$cluster <- 2
+#sentinel <- left_join(sentinel, cluster_dist, by = "DISTANCE_KM")
 
 ### Apply Regression ###
 
@@ -259,11 +260,10 @@ sentinelBands <- setDT(copy(sentinel))[, ":="(
 # sentinel_pred$LOG10_SSC_MGL <- ssc
 # sentinel_pred$SSC_MGL <- 10^ssc
 
-# For multiple clusters per river
 sentinel_pred <- copy(sentinel)
 sentinel_pred$PRED_LOG10_SSC_MGL <- NA
 # For one cluster uncomment
-cluster <- 4
+cluster <- 2
 sentinelBands$CLUSTER <- cluster
 sentinel_pred$CLUSTER <- cluster
 
@@ -273,7 +273,7 @@ for (clust in unique(sentinelBands$CLUSTER)) {
   load(file = paste0(path, clust, ".RData"))
   ssc <- predict(
     ssc_lm,
-    newx = as.matrix(sentinelBands %>% filter(CLUSTER == clust) %>% select(starts_with("B") & -B2_COUNT)),
+    newx = as.matrix(sentinelBands %>% filter(CLUSTER == clust) %>% dplyr::select(starts_with("B") & -B2_COUNT)),
     s = "lambda.min"
     )
   sentinel_pred[sentinel_pred$CLUSTER == clust, ]$PRED_LOG10_SSC_MGL = ssc
@@ -283,7 +283,7 @@ sentinel_pred <- sentinel_pred %>% filter(PRED_LOG10_SSC_MGL <= 4)
 
 # Quick sanity check that everything looks okay
 ggplot(sentinel_pred, aes(x = DISTANCE_KM, y = PRED_SSC_MGL)) +
-  stat_summary(fun = mean, geom = "line")
+  stat_summary(fun = median, geom = "line")
 
 #sentinel_pred %>% select(DISTANCE_KM, CLUSTER) %>% distinct() %>% filter(CLUSTER != 4)
 
@@ -291,4 +291,4 @@ ggplot(sentinel_pred, aes(x = DISTANCE_KM, y = PRED_SSC_MGL)) +
 #        width = 12, height = 8)
 
 # Save Data
-write.csv(sentinel_pred, file = "/Users/ilanvalencius/Documents/River-Sed-Manuscript/figure-data/CHAT4.csv", row.names = FALSE)
+write.csv(sentinel_pred, file = "/Users/ilanvalencius/Documents/River-Sed-Manuscript/sentinel-ssc/figure-data/CHAT2.csv", row.names = FALSE)

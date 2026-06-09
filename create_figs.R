@@ -59,7 +59,7 @@ ggplot(stations, aes(x = year, y = n_stations)) +
   geom_line(color = col1) +
   geom_line(aes(y=n_samples/coeff), color=col2) +
   geom_point(aes(y=n_samples/coeff), color = col2) +
-  labs(x = "Year", y = "Number of USGS-SSC Monitoring Sites") +
+  labs(x = "Year", y = "Active USGS SSC/Turbidity Monitoring Sites") +
   theme_bw() +
   #theme(text=element_text(family="JetBrains Mono NL")) +
   scale_y_continuous(
@@ -87,7 +87,7 @@ rating_samples <- read.csv(paste0(wd_imports, "lag_4_RATING_CLUSTERED.csv"))
 # rating_samples$LAT <- round(rating_samples$LAT, digits=3)
 # rating_samples$LON <- round(rating_samples$LON, digits=3)
 # Issue is lat lon are off due to floating point error
-latlon <- rating_samples %>% select(SITE_NO, LAT, LON) %>% 
+latlon <- rating_samples %>% dplyr::select(SITE_NO, LAT, LON) %>% 
 group_by(SITE_NO) %>% 
 summarize_at(vars("LAT", "LON"), mean) %>% 
 distinct()
@@ -125,10 +125,9 @@ mean_ssc_map <- ggplot(data = world) +
     coord_sf(xlim = c(-125, -67), ylim = c(25, 50), expand = FALSE) +
     theme_bw() +
     labs(x = "Longitude", y = "Latitude") +
-    theme(legend.position = c(0.92, 0.2), legend.direction = "vertical") +
-    theme(legend.box.background = element_rect(colour = "black", size=1))  +
+    theme(legend.position = c(0.9, 0.2), legend.direction = "vertical") +
+    theme(legend.box.background = element_rect(colour = "black", linewidth=1))  +
     theme(legend.key.size = unit(0.2, "cm"))
-    #theme(text = element_text(family = "JetBrains Mono NL"))
 
 ggsave(filename = paste0(wd_exports, "sites-mean-ssc-main.png"))
 
@@ -168,14 +167,9 @@ n_samp_map <- ggplot(data = world) +
     coord_sf(xlim = c(-125, -67), ylim = c(25, 50), expand = FALSE) +
     theme_bw() +
     labs(x = "Longitude", y = "Latitude") +
-    theme(legend.position = c(0.92, 0.2), legend.direction = "vertical") +
-    theme(legend.box.background = element_rect(colour = "black", size=1)) +
+    theme(legend.position = c(0.9, 0.2), legend.direction = "vertical") +
+    theme(legend.box.background = element_rect(colour = "black", linewidth=1)) +
     theme(legend.key.size = unit(0.2, "cm"))
-    # theme(legend.text = element_text(size = rel(2))) +
-    # theme(legend.title = element_text(size = rel(3))) +
-    # theme(axis.text = element_text(size = rel(2.5))) +
-    # theme(axis.title = element_text(size = rel(4))) 
-    #theme(text = element_text(family = "JetBrains Mono NL"))
 
 ggsave(filename = paste0(wd_exports, "sites-n-samp-main.png"))
 
@@ -208,9 +202,13 @@ ggplot(data = world) +
     coord_sf(xlim = c(-125, -67), ylim = c(25, 50), expand = FALSE) +
     theme_bw() +
     labs(x = "Longitude", y = "Latitude") +
-    theme(legend.position = c(0.92, 0.2), legend.direction = "vertical") +
+    theme(legend.position = c(0.9, 0.2), legend.direction = "vertical") +
     theme(legend.box.background = element_rect(colour = "black", size=1)) +
-    theme(legend.key.size = unit(0.1, "cm")) +
+    theme(legend.key.size = unit(0.2, "cm")) +
+    theme(
+      # Set the legend title size (e.g., 8 is quite small)
+      legend.title = element_text(size = 5)
+    ) +
     #theme(text = element_text(family = "JetBrains Mono NL")) +
     labs(fill = "River Cluster")
 
@@ -231,16 +229,40 @@ ggsave(filename = paste0(wd_exports, "sites-cluster-main.png"))
 # ggsave(filename = paste0(wd_exports, "sites-cluster-inset.png"))
 
 #######################   Figure 2 - Hist  #####################################
-samples <- read.csv(paste0(wd_imports, "lag_4_INSITU_CLUSTERED.csv"))
-rating_samples <- read.csv(paste0(wd_imports, "lag_4_RATING_CLUSTERED.csv"))
+#samples <- read.csv(paste0(wd_imports, "lag_4_INSITU_CLUSTERED.csv"))
+samples <- read.csv(paste0(wd_imports, "lag_4_RATING_CLUSTERED.csv")) %>% 
+  mutate(
+    SOURCE = factor(
+      SOURCE, c( "LANDSAT", "USGS RATING CURVE", "USGS")
+    )
+  )
 
-sample_hist <- ggplot(rating_samples, aes(log10(SSC_MGL), fill="Rating Curve Derived")) +
-  geom_histogram(col="black", bins=40, alpha=1) +
-  geom_histogram(data=samples, aes(fill="In-Situ Samples"), col="black", bins=40, alpha=1) +
+sample_hist <- ggplot(samples, aes(log10(SSC_MGL), fill=SOURCE)) +
+  geom_histogram(col="black", bins=40, alpha=1, position='stack') +
   theme_bw() +
-  theme(legend.position = c(0.75, 0.75)) +
-  theme(legend.box.background = element_rect(colour = "black", size=1)) +
-  labs(x = "Suspended Sediment Concentration [log10(mg/L)]", y = "Number of Samples", fill = "Data Source")
+  theme(legend.position = c(0.25, 0.92)) +
+  theme(legend.box.background = element_rect(colour = "black", size=0.5)) +
+  labs(x = "Suspended Sediment Concentration [log10(mg/L)]", y = "Number of Samples", fill=NULL) +
+  scale_fill_manual(
+    values = c(
+      "USGS"       = "orange",
+      "LANDSAT"  = "steelblue",
+      "USGS RATING CURVE"       = "forestgreen"
+    ),
+    labels = c(
+        "USGS"       = "In-situ samples",
+        "LANDSAT"  = TeX("Landsat (Dethier et al., 2020)"),
+        "USGS RATING CURVE"       = TeX("Rating curve derived (R$^2$>0.8)")
+    )
+  ) +
+  theme(
+    legend.title = element_text(size = 8),
+    legend.text  = element_text(size = 7),   # shrink label text
+    legend.key.size = unit(0.15, "cm"),      # shrink key boxes (you already had this)
+    legend.spacing.y = unit(0.05, "cm"),     # reduce vertical spacing
+    legend.box.margin = margin(1, 1, 1, 1)   # tighten box padding
+  )
+
   #theme(text = element_text(family = "JetBrains Mono NL"))
 
 ggsave(
@@ -541,9 +563,9 @@ ggsave(filename=paste0(wd_exports, "lag-bias.png"), height = 7, width = 10, unit
 
 ###################### Fig 6 - Chattahoochee ###################################
 # Majority cluster
-chatM <- read.csv("/Users/ilanvalencius/Documents/River-Sed-Manuscript/sentinel-ssc/figure-data/CHAT4.csv")
+chatM <- read.csv("/Users/ilanvalencius/Documents/River-Sed-Manuscript/sentinel-ssc/figure-data/CHAT2.csv")
 # Variable cluster
-chatV <- read.csv("/Users/ilanvalencius/Documents/River-Sed-Manuscript/sentinel-ssc/figure-data/CHATVAR.csv")
+#chatV <- read.csv("/Users/ilanvalencius/Documents/River-Sed-Manuscript/sentinel-ssc/figure-data/CHATVAR.csv")
 
 chatM <- chatM %>% group_by(DISTANCE_KM) %>% 
   reframe(
@@ -553,15 +575,7 @@ chatM <- chatM %>% group_by(DISTANCE_KM) %>%
     d2 = lead(DISTANCE_KM)
     ) %>% filter(d2 >= 0) %>% unique()
 
-chatV <- chatV %>% group_by(DISTANCE_KM) %>% 
-  reframe(
-    L = quantile(PRED_SSC_MGL, probs=0.25), 
-    H = quantile(PRED_SSC_MGL, probs=0.75),
-    M = mean(PRED_SSC_MGL),
-    d2 = lead(DISTANCE_KM)
-    ) %>% filter(d2 >= 0) %>% unique()
-
-m <- ggplot(chatM, aes(x=DISTANCE_KM, y=M)) +
+ggplot(chatM, aes(x=DISTANCE_KM, y=M)) +
   geom_ribbon(aes(xmin=DISTANCE_KM, xmax=d2, ymin=L, ymax=H, fill="Majority Cluster"), 
   alpha=0.3, color="#8fae8f") +
   geom_line() +
@@ -577,99 +591,220 @@ m <- ggplot(chatM, aes(x=DISTANCE_KM, y=M)) +
     title="Majority Cluster")
   #theme(text = element_text(family = "JetBrains Mono NL"))
 
-v <- ggplot(chatV, aes(x=DISTANCE_KM, y=M)) +
-  geom_ribbon(aes(xmin=DISTANCE_KM, xmax=d2, ymin=L, ymax=H, fill="Variable Cluster"), 
-  alpha=0.3, color="#3a3abb") +
-  geom_line() +
-  scale_fill_manual(values = c("#070457")) +
-  coord_cartesian(ylim = c(0, 200)) +
-  theme_bw() +
-  theme(legend.position = c(0.75, 0.9)) +
-  # guides(fill = guide_legend(title = "Cluster Assignment")) +
-  guides(fill = "none") +
-  labs(
-    x = "Distance Downstream of Buford Dam [km]",
-    y = "SSC [mg/L]",
-    title="Variable Cluster Assignment")
-  #theme(text = element_text(family = "JetBrains Mono NL"))
-
-ggarrange(v, m, ncol = 2, widths=c(1,1), labels = c('(a)','(b)'))
-# ggsave(m, filename=paste0(wd_exports, "chatM.png"), height = 5, width = 7, units = "in", dpi=300)
 ggsave(filename=paste0(wd_exports, "chat.png"), height = 5, width = 10, units = "in", dpi=300)
 
 ##################### Fig 6 - Chattahoochee 2 ##################################
 # Majority cluster
-chatM <- read.csv("/Users/ilanvalencius/Documents/River-Sed-Manuscript/sentinel-ssc/figure-data/CHAT4.csv")
-# Add label for every 20 km
-chatM$dist_group <- floor(chatM$DISTANCE_KM/10)*10
+chatM <- read.csv("/Users/ilanvalencius/Documents/River-Sed-Manuscript/sentinel-ssc/figure-data/CHAT2.csv")
+# Add label for every 2 km (helps with harmonization)
+chatM$dist_group <- floor(chatM$DISTANCE_KM/2)*2
 # USGS data
 usgs <- read.csv("/Users/ilanvalencius/Documents/River-Sed-Manuscript/sentinel-ssc/figure-data/PROCESSED_CHATTAHOOCHEE_SSC.csv")
-usgs$dist_group <- floor(usgs$dist_downstream_km/10) * 10
-# Filter from data 2000 - now
-usgs <- usgs %>% filter(sample_dt >= 1990)
-# Load dams
+usgs$dist_group <- floor(usgs$dist_downstream_km/2) * 2
+
+usgs_Q <- read.csv("/Users/ilanvalencius/Documents/River-Sed-Manuscript/sentinel-ssc/figure-data/PROCESSED_CHATTAHOOCHEE_Q.csv")
+usgs_Q$dist_group <- floor(usgs_Q$dist_downstream_km/2) * 2
+usgs_Q$dam_discharge_m3s <- 0
+
 dams <- read.csv("/Users/ilanvalencius/Documents/River-Sed-Manuscript/sentinel-ssc/figure-data/ERDC_CHATTAHOOCHEE_DAMS.csv")
 
-# Active sites
-active <- usgs %>% filter(sample_dt > 2022) %>% select(dist_downstream_km) %>% unique()
-# chatM <- chatM %>% group_by(DISTANCE_KM) %>% 
-#   reframe(
-#     L = quantile(PRED_SSC_MGL, probs=0.10), 
-#     H = quantile(PRED_SSC_MGL, probs=0.90),
-#     M = mean(PRED_SSC_MGL),
-#     d2 = lead(DISTANCE_KM)
-#     ) %>% filter(d2 >= 0) %>% unique()
+# Filter from data 1990 - now
+usgs <- usgs %>% filter(sample_dt >= 1990)
+usgs_Q <- usgs_Q %>% filter(sample_dt >= 1990)
+usgs_Q_mean <- usgs_Q %>%
+  dplyr::group_by(dist_group, sample_dt) %>%
+  dplyr::summarise(Q_m3s = mean(Q_m3s, na.rm = TRUE))
 
-ggplot(chatM, aes(group=dist_group, x=dist_group, y=PRED_SSC_MGL)) +
-  geom_boxplot(aes(color='Sentinel-2'), outlier.shape=NA) +
-  geom_boxplot(data=usgs, aes(y=SSC_mgL, color='USGS'), width=20, outlier.shape = NA, alpha=0.5, linewidth=0.75) +
-  geom_vline(xintercept = dams$distance_km, color="red", linewidth=1) +
-  coord_cartesian(ylim = c(0, 150)) +
-  geom_point(data=active, aes(x=dist_downstream_km, y=0, group=NA), fill="purple", size=5, shape=24) +
+# Active sites
+active <- usgs %>% filter(sample_dt > 2022) %>% dplyr::select(dist_group) %>% unique()
+Q_stations <- usgs_Q %>% filter(sample_dt > 2022) %>% dplyr::select(dist_group) %>% unique()
+
+# Get SSC flux
+# Create flux
+df_flux <- left_join(
+  chatM,
+  usgs_Q_mean,
+  by = c("DATE" = "sample_dt", "dist_group" = "dist_group")
+)
+# Ensure dist_group is sorted within each DATE
+setDT(df_flux)
+setorder(df_flux, DATE, dist_group)
+
+# Add annual discharge for dams (data in \figures\trapping-efficiencies\)
+#df_flux$dam_discharge_m3s <- NA
+#df_flux <- df_flux %>%
+#  mutate(dam_discharge_m3s = case_when(
+#    dist_group == 10  ~ 1914  * 0.0283168,  # Buford (dist = 0)
+#    dist_group == 240 ~ 4712  * 0.0283168,  # West Point dam (dist = 240)
+#    dist_group == 430 ~ 9155  * 0.0283168,  # Walter F. George (dist = 432)
+#    dist_group == 480 ~ 10767 * 0.0283168,  # George W. Andrews (dist = 478)
+#    dist_group == 550 ~ 21489 * 0.0283168,  # Jim Woodruff (dist = 552)
+#    .default = dam_discharge_m3s            # keep existing values for all other rows
+#  ))
+
+# Forward fill across dist_group for each DATE
+df_flux[, Q_m3s := zoo::na.locf(Q_m3s, na.rm = FALSE), by = DATE]
+# Filter flux to be 0 after Flint shows up
+df_flux <- df_flux %>%
+  mutate(Q_m3s = ifelse(dist_group > 520, NA, Q_m3s))
+
+df_flux$flux_kg_s <- df_flux$PRED_SSC_MGL * df_flux$Q_m3s
+#df_flux$dam_flux_kg_s <- df_flux$PRED_SSC_MGL * df_flux$dam_discharge_m3s
+
+scale_factor <- 1 / 100
+
+# Compute quartiles if needed
+sentinel_summary <- df_flux %>%
+  dplyr::group_by(dist_group) %>%
+  dplyr::summarise(
+    q1 = quantile(PRED_SSC_MGL, 0.25, na.rm = TRUE),
+    median = median(PRED_SSC_MGL, na.rm = TRUE),
+    q3 = quantile(PRED_SSC_MGL, 0.75, na.rm = TRUE),
+    flux_median = median(flux_kg_s, na.rm=TRUE)
+  )
+
+ggplot(sentinel_summary, aes(x = dist_group, y = median)) +
+  geom_ribbon(
+    data = sentinel_summary,
+    aes(ymin = q1, ymax = q3, group = 1, fill = "Sentinel-2"),
+    alpha = 0.25
+  ) +
+  geom_line(
+    data = sentinel_summary,
+    aes(y = median, group = 1, color = "Sentinel-2"),
+    linewidth = 1
+  ) +
+  geom_boxplot(
+    data = usgs,
+    aes(group=dist_group, x=dist_group, y = SSC_mgL, color = "USGS"),
+    width = 20, outlier.shape = NA, alpha = 0.5, linewidth = 0.75
+  ) +
+  geom_point(data = Q_stations, aes(x = dist_group, y = 1, group=NA), 
+           fill = "green", size = 5, shape = 24) +
+  geom_point(data = active, aes(x = dist_group, y = 1, group=NA), 
+             fill = "purple", size = 5, shape = 24) +
+  geom_vline(xintercept = dams$distance_km, color = "red", linewidth = 1) +
+  coord_cartesian(ylim = c(0, 75), xlim=c(0, 710), expand=FALSE) +
+  scale_y_continuous(
+    name = "SSC [mg/L]",
+    sec.axis = sec_axis(~ . / scale_factor, name = "Flux [kg/s]")
+  ) +
+  geom_line(
+    data=sentinel_summary, aes(x=dist_group, y=flux_median * scale_factor),
+    linewidth=1, color='black'
+    ) +
   theme_bw() +
-  theme(legend.position = c(0.85, 0.9)) +
-  scale_color_manual(values = c("#064012", "#3a3abb")) +
-  guides(color = guide_legend(title = "Data Source")) +
+  theme(
+    legend.position = c(0.9, 0.85),
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 2)
+  ) +
+  theme(legend.box.background = element_rect(colour = "black", size=2)) +
+  scale_color_manual(values = c("Sentinel-2" = "#064012", "USGS" = "#3a3abb")) +
+  scale_fill_manual(values = c("Sentinel-2" = "#064012")) +
+  guides(color = guide_legend(title = "Data Source"),
+         fill = "none") +
   labs(
     x = "Distance Downstream of Buford Dam [km]",
-    y = "SSC [mg/L]",
-    title="SSC Across the Chattahoocee and Apalachicola Rivers")
-  #theme(text = element_text(family = "JetBrains Mono NL"))
+    title = "SSC across the Chattahoocee and Apalachicola Rivers"
+  ) 
 
-ggsave(filename=paste0(wd_exports, "chat_boxplot.png"), height = 7, width = 10, units = "in", dpi=300)
+ggsave(filename=paste0(wd_exports, "chat_boxplot.png"), height = 5, width = 7, units = "in", dpi=300)
 
-# Quick estimates of trapping efficiency
-# ratio of minimum median SSC downstream of the dam over maximum median SSC upstream of each reservoir.
-# In downstream order: Buford Dam (59 m tall), West Point Dam (37 m), Walter F. George Lock and Dam (31 m), George W. Andrews Lock and Dam (8 m), and Jim Woodruff Lock and Dam (14 m)
-print(dams$distance_km %>% sort())
-medians <- chatM %>% group_by(dist_group) %>% summarise(median_value = median(PRED_SSC_MGL))
-# masks are for region before dam
-west_pt_mask <- (medians$dist_group > 0) & (medians$dist_group < 240)
-walter_mask <- (medians$dist_group > 240) & (medians$dist_group < 432)
-george_mask <- (medians$dist_group > 432) & (medians$dist_group < 478)
-woodruff_mask <- (medians$dist_group > 478) & (medians$dist_group < 552)
-after_woodruff <- medians$dist_group > 552
-# Clip to dams
-west_pt <- medians[west_pt_mask, ]$median_value
-walter <- medians[walter_mask, ]$median_value
-george <- medians[george_mask, ]$median_value
-woodruff <- medians[woodruff_mask, ]$median_value
-after_woodruff <- medians[after_woodruff,]$median_value
-# Now get trapping efficiencies
-print(c('West Point TE', (max(west_pt)-min(walter))/max(west_pt)*100))
-print(c('Walter TE', (max(walter)-min(george))/max(walter)*100))
-print(c('George TE', (max(george)-min(woodruff))/max(george)*100))
-print(c('Woodruff TE', (max(woodruff)-min(after_woodruff))/max(woodruff)*10))
-# West point 
-print(c('Max median ssc before dam (West Pt)', max(west_pt)))
-print(c('Min median ssc after dam (West Pt)', min(walter)))
-# Walter
-print(c('Max median ssc before dam (Walter)', max(walter)))
-print(c('Min median ssc after dam (Walter)', min(george)))
-# George
-print(c('Max median ssc before dam (George)', max(george)))
-print(c('Min median ssc after dam (George)', min(woodruff)))
-# Woodruff
-print(c('Max median ssc before dam (Woodruff)', max(woodruff)))
-print(c('Min median ssc after dam (Woodruff)', min(after_woodruff)))
-      
+
+calc_trapping_efficiency <- function(medians) {
+  
+  # Define dams with their upstream/downstream dist_group boundaries
+  dam_definitions <- list(
+    list(name = "West Point",    before_min = 0,   before_max = 240, after_min = 240, after_max = 240),
+    list(name = "Walter F. George", before_min = 240, before_max = 432, after_min = 432, after_max = 442),
+    list(name = "George W. Andrews", before_min = 432, before_max = 478, after_min = 478, after_max = 488)
+    #list(name = "Jim Woodruff",  before_min = 478, before_max = 552, after_min = 552, after_max = Inf)
+  )
+  
+  results <- lapply(dam_definitions, function(dam) {
+    before_vals <- medians$median_value[
+      medians$dist_group > dam$before_min & medians$dist_group < dam$before_max
+    ]
+    after_vals <- medians$median_value[
+      medians$dist_group > dam$after_min & medians$dist_group < dam$after_max
+    ]
+
+    median_before <- max(before_vals, na.rm = TRUE)
+    median_after  <- min(after_vals,  na.rm = TRUE)
+    trapping_eff  <- (median_before - median_after) / median_before * 100
+    
+    data.frame(
+      dam_name      = dam$name,
+      median_before = median_before,
+      median_after  = median_after,
+      trapping_efficiency_pct = trapping_eff
+    )
+  })
+  
+  do.call(rbind, results)
+}
+medians <- df_flux %>% group_by(dist_group) %>% summarise(median_value = median(flux_kg_s, na.rm=TRUE))
+medians_ssc <- df_flux %>% group_by(dist_group) %>% summarise(median_value = median(PRED_SSC_MGL, na.rm=TRUE),)
+# Usage
+te_flux <- calc_trapping_efficiency(medians)
+te_ssc <- calc_trapping_efficiency(medians_ssc)
+write.csv(
+  te_flux,
+  paste0(wd_imports, 'TE_flux_kgs.csv')
+)
+write.csv(
+  te_ssc,
+  paste0(wd_imports, 'TE_SSC_mgL.csv')
+)
+
+####################### Plot of regression coefficients ########################
+df <- read.csv('/Users/ilanvalencius/Documents/River-Sed-Manuscript/sentinel-ssc/exports/cluster_regress/lag_4/RATING_regression/regression_variables.csv')
+library(tidyverse)
+
+df_long <- df %>%
+  filter(Variable != "Intercept") %>% 
+  pivot_longer(
+    cols = starts_with("CLUSTER_"),
+    names_to = "Cluster",
+    values_to = "Value"
+  ) %>%
+  mutate(
+    Cluster = str_replace(Cluster, "CLUSTER_", "Cluster "),
+    Variable = str_replace_all(Variable, "\\.", "/")
+  )
+
+# Select top 10 by magnitude *within each cluster*
+df_top10 <- df_long %>%
+  mutate(mag = abs(Value)) %>%
+  group_by(Cluster) %>%
+  slice_max(order_by = mag, n = 15, with_ties = FALSE) %>%
+  ungroup() %>%
+  mutate(
+    Variable = reorder(paste(Variable, Cluster, sep = "___"), mag)
+  )
+
+ggplot(df_top10, aes(x = Variable, y = mag, fill = Cluster)) +
+  geom_col(color = "black", width = 0.75) +
+  geom_hline(yintercept = 0, color = "black", linewidth = 1) +
+  facet_wrap(~ Cluster, scales = "free") +
+  coord_flip() + 
+  scale_x_discrete(labels = function(x) sub("___.*$", "", x)) +
+  theme_bw(base_size = 14) +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 14, face = "bold"),
+    axis.title = element_text(size = 14),
+    legend.position = "none"
+  ) +
+  labs(
+    x = "Top 15 Coefficients",
+    y = "Magnitude"
+  )
+
+
+ggsave(filename = paste0(wd_exports, "top10_coefficients.png"),
+       height = 6, width = 6, units = "in", dpi = 300)
+
+
+
