@@ -223,11 +223,14 @@ by=c("SITE_NO"="SITE_NO", "SAMPLE_DT"="SAMPLE_DT", "Q_M3S"="Q_M3S"))
 SSCQ <- bind_rows(SSC_with_Q, Q_no_SSC)
 
 # NEED TO HAVE POSITIVE FLUXES THE WHOLE TIME
+# [m^3/s] * [mg/L] = [m^3 mg/s L]
+# Conversion factor: [10^3 L / 1 m^3] * [3.15576 * 10^7 s/yr] * [1 metric megaton/10^15 mg]
+# Conversion factor: 3.15576 * 10^-5
 ratingSSCQ <- setDT(copy(SSCQ))[
   ,':='(
     LOG10_Q_M3S = log10(Q_M3S),
-    LOG10_SSC_FLUX_MTYR = log10(Q_M3S * SSC_MGL * 3.10585 * 10**-5),
-    SSC_FLUX_MTYR = Q_M3S * SSC_MGL * 3.10585 * 10**-5,
+    LOG10_SSC_FLUX_MTYR = log10(Q_M3S * SSC_MGL * 3.15576 * 10**-5),
+    SSC_FLUX_MTYR = Q_M3S * SSC_MGL * 3.15576 * 10**-5,
     R2 = 0.0,
     RATINGCURVE = FALSE
     )]
@@ -276,7 +279,8 @@ for (i in seq_along(station_nums)){
     ratingSSCQ[goodIDs]$LOG10_SSC_FLUX_MTYR <- ssc_flux
     # Get secondary metrics
     ratingSSCQ[goodIDs]$SSC_FLUX_MTYR <- 10^ssc_flux
-    ratingSSCQ[goodIDs]$SSC_MGL <- (10^ssc_flux) / (ratingSSCQ[goodIDs]$Q_M3S * 3.10585 * 10**-5)
+    # Now get SSC: flux / (discharge * conversion factor)
+    ratingSSCQ[goodIDs]$SSC_MGL <- (10^ssc_flux) / (ratingSSCQ[goodIDs]$Q_M3S * 3.15576 * 10**-5)
     ratingSSCQ[goodIDs]$LOG10_SSC_MGL <- log10(ratingSSCQ[goodIDs]$SSC_MGL)
     ratingSSCQ[goodIDs]$R2 <- R2
     ratingSSCQ[goodIDs]$RATINGCURVE <- TRUE
