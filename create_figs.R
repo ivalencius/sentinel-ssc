@@ -607,6 +607,16 @@ usgs_Q$dist_group <- floor(usgs_Q$dist_downstream_km/2) * 2
 usgs_Q$dam_discharge_m3s <- 0
 
 dams <- read.csv("/Users/ilanvalencius/Documents/River-Sed-Manuscript/sentinel-ssc/figure-data/ERDC_CHATTAHOOCHEE_DAMS.csv")
+# Add abbreviations
+dams$abbreviations <- c('GWA', 'WFG', 'JW', NA, 'WP')
+
+# Add in other non-federal dams
+# Dist downstream found using google earth with river centerline
+nonfederal_dams <- data.frame(
+  name = c('Bartletts Ferry', 'Goat Rock', 'Oliver'),
+  approx_height_m = c(46, 21, 21),
+  dist_downstream_km = c(269, 278, 291)
+)
 
 # Filter from data 1990 - now
 usgs <- usgs %>% filter(sample_dt >= 1990)
@@ -684,6 +694,19 @@ ggplot(sentinel_summary, aes(x = dist_group, y = median)) +
   geom_point(data = active, aes(x = dist_group, y = 1, group=NA), 
              fill = "purple", size = 5, shape = 24) +
   geom_vline(xintercept = dams$distance_km, color = "red", linewidth = 1) +
+  # Now put in nonfederal dams
+  geom_vline(xintercept = nonfederal_dams$dist_downstream_km, color = "red", linewidth = 1, linetype='dashed') +
+  # Now label dams
+  geom_label(
+    data = dams,
+    aes(x = distance_km, y = c(65, 72, 50, 72, 72), label = abbreviations),
+    hjust = 0.5,        # left-align text so it sits to the right of the line
+    vjust = 1,         # top-align text so it hangs just below y = 75
+    size = 3.5,
+    color = "red",
+    fill='white',
+    inherit.aes = FALSE
+  ) +
   coord_cartesian(ylim = c(0, 75), xlim=c(0, 710), expand=FALSE) +
   scale_y_continuous(
     name = "SSC [mg/L]",
