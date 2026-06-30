@@ -561,39 +561,8 @@ ggarrange(holdout_bias, lag_bias, ncol = 2, widths=c(1,3), labels = c('(a)','(b)
 
 ggsave(filename=paste0(wd_exports, "lag-bias.png"), height = 7, width = 10, units = "in")
 
-###################### Fig 6 - Chattahoochee ###################################
-# Majority cluster
-chatM <- read.csv("/Users/ilanvalencius/Documents/River-Sed-Manuscript/sentinel-ssc/figure-data/CHAT2.csv")
-# Variable cluster
-#chatV <- read.csv("/Users/ilanvalencius/Documents/River-Sed-Manuscript/sentinel-ssc/figure-data/CHATVAR.csv")
 
-chatM <- chatM %>% group_by(DISTANCE_KM) %>% 
-  reframe(
-    L = quantile(PRED_SSC_MGL, probs=0.10), 
-    H = quantile(PRED_SSC_MGL, probs=0.90),
-    M = mean(PRED_SSC_MGL),
-    d2 = lead(DISTANCE_KM)
-    ) %>% filter(d2 >= 0) %>% unique()
-
-ggplot(chatM, aes(x=DISTANCE_KM, y=M)) +
-  geom_ribbon(aes(xmin=DISTANCE_KM, xmax=d2, ymin=L, ymax=H, fill="Majority Cluster"), 
-  alpha=0.3, color="#8fae8f") +
-  geom_line() +
-  scale_fill_manual(values = c("#064012")) +
-  coord_cartesian(ylim = c(0, 200)) +
-  theme_bw() +
-  theme(legend.position = c(0.75, 0.9)) +
-  # guides(fill = guide_legend(title = "Cluster Assignment")) +
-  guides(fill = "none") +
-  labs(
-    x = "Distance Downstream of Buford Dam [km]",
-    y = "SSC [mg/L]",
-    title="Majority Cluster")
-  #theme(text = element_text(family = "JetBrains Mono NL"))
-
-ggsave(filename=paste0(wd_exports, "chat.png"), height = 5, width = 10, units = "in", dpi=300)
-
-##################### Fig 6 - Chattahoochee 2 ##################################
+##################### Fig 6 - Chattahoochee ##################################
 # Majority cluster
 chatM <- read.csv("/Users/ilanvalencius/Documents/River-Sed-Manuscript/sentinel-ssc/figure-data/CHAT2.csv")
 # Add label for every 2 km (helps with harmonization)
@@ -709,12 +678,12 @@ ggplot(sentinel_summary, aes(x = dist_group, y = median)) +
   ) +
   coord_cartesian(ylim = c(0, 75), xlim=c(0, 710), expand=FALSE) +
   scale_y_continuous(
-    name = "SSC [mg/L]",
+    name = "SSC [mg/L]", 
     sec.axis = sec_axis(~ . / scale_factor, name = "Flux [kg/s]")
   ) +
   geom_line(
     data=sentinel_summary, aes(x=dist_group, y=flux_median * scale_factor),
-    linewidth=1, color='black'
+    linewidth=1, color="darkgreen"
     ) +
   theme_bw() +
   theme(
@@ -722,13 +691,21 @@ ggplot(sentinel_summary, aes(x = dist_group, y = median)) +
     panel.border = element_rect(colour = "black", fill = NA, linewidth = 2)
   ) +
   theme(legend.box.background = element_rect(colour = "black", size=2)) +
-  scale_color_manual(values = c("Sentinel-2" = "#064012", "USGS" = "#3a3abb")) +
-  scale_fill_manual(values = c("Sentinel-2" = "#064012")) +
+  scale_color_manual(values = c("Sentinel-2" = "black", "USGS" = "#3a3abb")) +
+  scale_fill_manual(values = c("Sentinel-2" = "black")) +
+  theme(
+    axis.title.y.left = element_text(color = "black", size=14),
+    axis.text.y.left  = element_text(color = "black", size=12),
+    axis.title.y.right = element_text(color = "darkgreen", size=14),
+    axis.text.y.right = element_text(color = "darkgreen", size=12),
+    axis.title.x = element_text(size=14),
+    axis.text.x = element_text(size=12)
+  ) +
   guides(color = guide_legend(title = "Data Source"),
          fill = "none") +
   labs(
     x = "Distance Downstream of Buford Dam [km]",
-    title = "SSC across the Chattahoocee and Apalachicola Rivers"
+    #title = "SSC across the Chattahoochee and Apalachicola Rivers"
   ) 
 
 ggsave(filename=paste0(wd_exports, "chat_boxplot.png"), height = 5, width = 7, units = "in", dpi=300)
