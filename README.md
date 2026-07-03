@@ -1,8 +1,7 @@
 # sentinel-ssc
 
-This repository contains code for the paper **Estimating river suspended sediment concentrations from Sentinel-2: expanding the training set and applicability to multi-dammed systems**
+This repository contains code for the paper **Estimating river suspended sediment concentrations from Sentinel-2: expanding the training set and applicability to multi-dammed systems** submitted to *Water Resources Research*.
 
-[Insert DOI once published]
 
 ## Authors
 - Ilan Valencius (corresponding author)
