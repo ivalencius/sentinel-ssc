@@ -807,4 +807,15 @@ ggsave(filename = paste0(wd_exports, "top10_coefficients.png"),
        height = 6, width = 6, units = "in", dpi = 300)
 
 
+### For reviewer edits: get discharge at each site downstream
+# For clarity filter from 2010-present
+usgs_Q <- read.csv("/Users/ilanvalencius/Documents/River-Sed-Manuscript/sentinel-ssc/figure-data/PROCESSED_CHATTAHOOCHEE_Q.csv") %>%
+  filter(sample_dt > 2010)
+# Get average discharge at each site
+avg_discharge <- usgs_Q %>% group_by(site_no) %>% summarize(
+  mean_discharge = mean(Q_m3s),
+  dist_downstream_km = mean(dist_downstream_km)
+)
+# Now look at the file and do manual conversion
+
 
